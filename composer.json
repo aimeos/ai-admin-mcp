@@ -1,0 +1,35 @@
+{
+	"name": "aimeos/ai-admin-mcp",
+	"description": "Framework-neutral MCP tools for Aimeos administration",
+	"keywords": ["aimeos", "mcp", "admin", "ai"],
+	"type": "aimeos-extension",
+	"license": "LGPL-3.0-or-later",
+	"support": {
+		"source": "https://github.com/aimeos/ai-admin-mcp",
+		"issues": "https://github.com/aimeos/ai-admin-mcp/issues",
+		"forum": "https://aimeos.org/help",
+		"wiki": "https://aimeos.org/docs"
+	},
+	"prefer-stable": true,
+	"minimum-stability": "dev",
+	"require": {
+		"php": "^8.2",
+		"aimeos/aimeos-core": "dev-master",
+		"aimeos/prisma": "dev-master",
+		"nyholm/psr7": "~1.2"
+	},
+	"require-dev": {
+		"phpunit/phpunit": "~10.0||~11.0||~12.0",
+		"phpstan/phpstan": "^2.1"
+	},
+	"autoload": {
+		"psr-4": {
+			"Aimeos\\Admin\\Mcp\\": "src/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"Aimeos\\Admin\\Mcp\\Tests\\": "tests/"
+		}
+	}
+}

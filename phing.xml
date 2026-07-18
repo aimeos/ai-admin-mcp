@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project name="ai-admin-mcp" default="test">
+
+	<target name="test" description="Executes unit tests" depends="clean">
+		<echo msg="Executing unit tests" />
+		<exec executable="${bindir}phpunit" dir="tests" checkreturn="true" logoutput="true" passthru="true">
+			<arg line="-d memory_limit=-1 --include-path ${coredir} --configuration=phpunit.xml --display-warnings --display-notices" />
+		</exec>
+	</target>
+
+	<target name="analyse" description="Executes static analysis">
+		<echo msg="Executing static analysis" />
+		<exec executable="${bindir}phpstan" checkreturn="true" logoutput="true" passthru="true">
+			<arg line="analyse --configuration=phpstan.neon --no-progress" />
+		</exec>
+	</target>
+
+	<target name="check" description="Executes code sniffer">
+		<echo msg="Executing code sniffer" />
+		<exec executable="${bindir}phpcs" checkreturn="true" logoutput="true" passthru="true">
+			<arg line="-n --standard=${codestddir}/Aimeos src tests/*/" />
+		</exec>
+	</target>
+
+	<target name="clean" description="Cleans up temporary files">
+		<delete quiet="true" failonerror="false">
+			<fileset dir="tests">
+				<include name="*.log" />
+			</fileset>
+		</delete>
+	</target>
+
+	<target name="i18n" description="Creates translation message files">
+		<echo msg="Nothing to do" />
+	</target>
+
+	<target name="i18n-update" description="Updates translation message files">
+		<echo msg="Nothing to do" />
+	</target>
+
+	<target name="build" description="Builds package for deployment">
+		<echo msg="Nothing to do" />
+	</target>
+
+	<target name="all" depends="test,analyse,check" description="Builds all parts of the package" />
+
+</project>
