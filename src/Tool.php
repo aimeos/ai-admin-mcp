@@ -74,10 +74,10 @@ abstract class Tool
 	}
 
 
-	protected function authorize() : void
+	protected function authorize( ?string $domain = null, ?string $permission = null ) : void
 	{
 		$groups = (array) $this->context->config()->get(
-			'admin/mcp/resource/' . $this->domain() . '/' . $this->permission(),
+			'admin/mcp/resource/' . ( $domain ?? $this->domain() ) . '/' . ( $permission ?? $this->permission() ),
 			[]
 		);
 
@@ -109,7 +109,7 @@ abstract class Tool
 
 	final protected function items() : Items
 	{
-		return $this->items ??= new Items( $this->context );
+		return $this->items ??= new Items( $this->context, $this->authorize( ... ) );
 	}
 
 

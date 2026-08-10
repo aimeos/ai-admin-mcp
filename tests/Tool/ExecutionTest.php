@@ -35,9 +35,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 	public function testForbidden() : void
 	{
-		$view = new \Aimeos\Base\View\Standard();
-		$view->addHelper( 'access', new \Aimeos\Base\View\Helper\Access\Standard( $view, [] ) );
-		$this->context->setView( $view );
+		$this->setAccess( [] );
 
 		$this->expectException( Exception::class );
 		$this->expectExceptionCode( 403 );
@@ -95,6 +93,8 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 	public function testSaveAndDeleteProduct() : void
 	{
+		$this->setAccess( ['editor'] );
+
 		$code = 'test-mcp-' . bin2hex( random_bytes( 4 ) );
 		$result = ( new Save( $this->context ) )->execute( ['items' => [[
 			'code' => $code,
@@ -122,5 +122,143 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 				$this->assertSame( [$id], $deleted['ids'] );
 			}
 		}
+	}
+
+
+	public function testSaveProductWithExistingNestedPluginForbidden() : void
+	{
+		$this->assertNestedPluginForbidden( ['id' => '2147483647'] );
+	}
+
+
+	public function testSaveProductWithNewNestedPluginForbidden() : void
+	{
+		$this->assertNestedPluginForbidden( [] );
+	}
+
+
+	public function testSaveProductWithMixedNestedPluginPermissionsForbidden() : void
+	{
+		$config = $this->context->config();
+		$get = $config->get( 'admin/mcp/resource/plugin/get' );
+		$save = $config->get( 'admin/mcp/resource/plugin/save' );
+
+		$config->set( 'admin/mcp/resource/plugin/get', ['admin'] );
+		$config->set( 'admin/mcp/resource/plugin/save', ['editor'] );
+
+		try {
+			$this->assertNestedPluginForbidden( [], [['type' => 'default', 'refid' => '2147483647']] );
+		} finally {
+			$config->set( 'admin/mcp/resource/plugin/get', $get );
+			$config->set( 'admin/mcp/resource/plugin/save', $save );
+		}
+	}
+
+
+	public function testSaveProductDeletingNestedGroupForbidden() : void
+	{
+		$this->setAccess( ['admin'] );
+
+		$code = 'test-mcp-' . bin2hex( random_bytes( 4 ) );
+		$groupCode = 'test-mcp-group-' . bin2hex( random_bytes( 4 ) );
+		$productId = '';
+
+		try
+		{
+			$result = ( new Save( $this->context ) )->execute( ['items' => [[
+				'code' => $code,
+				'label' => 'Unauthorized nested deletion test',
+				'type' => 'default',
+				'status' => 0,
+				'lists' => ['group' => [[
+					'type' => 'default',
+					'item' => ['code' => $groupCode, 'label' => 'Temporary MCP group'],
+				]]],
+			]]] );
+			$productId = (string) ( $result['items'][0]['id'] ?? '' );
+
+			$this->setAccess( ['editor'] );
+			$this->expectException( Exception::class );
+			$this->expectExceptionCode( 403 );
+
+			( new Save( $this->context ) )->execute( ['items' => [[
+				'id' => $productId,
+				'lists' => ['group' => []],
+			]]] );
+		}
+		finally
+		{
+			$this->setAccess( ['admin'] );
+
+			if( $productId !== '' )
+			{
+				( new Save( $this->context ) )->execute( ['items' => [[
+					'id' => $productId,
+					'lists' => ['group' => []],
+				]]] );
+				( new Delete( $this->context ) )->execute( ['ids' => [$productId]] );
+			}
+
+			$this->deleteBy( 'group', 'group.code', $groupCode );
+		}
+	}
+
+
+	/**
+	 * @param array<string, mixed> $plugin
+	 * @param array<int, array<string, mixed>> $lists
+	 */
+	private function assertNestedPluginForbidden( array $plugin, array $lists = [] ) : void
+	{
+		$this->setAccess( ['editor'] );
+
+		$code = 'test-mcp-' . bin2hex( random_bytes( 4 ) );
+		$label = 'Unauthorized MCP plugin ' . bin2hex( random_bytes( 4 ) );
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 403 );
+
+		try
+		{
+			( new Save( $this->context ) )->execute( ['items' => [[
+				'code' => $code,
+				'label' => 'Unauthorized nested plugin test',
+				'type' => 'default',
+				'status' => 0,
+				'lists' => ['plugin' => array_merge( [[
+					'type' => 'default',
+					'item' => $plugin + [
+						'type' => 'order',
+						'label' => $label,
+						'provider' => 'ProductLimit',
+						'status' => 0,
+						'config' => ['single-number-max' => 1],
+					],
+				]], $lists )],
+			]]] );
+		}
+		finally
+		{
+			$this->deleteBy( 'product', 'product.code', $code );
+			$this->deleteBy( 'plugin', 'plugin.label', $label );
+		}
+	}
+
+
+	private function deleteBy( string $domain, string $key, string $value ) : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, $domain );
+		$filter = $manager->filter()->add( $key, '==', $value );
+		$manager->delete( $manager->search( $filter )->keys() );
+	}
+
+
+	/**
+	 * @param array<int, string> $groups
+	 */
+	private function setAccess( array $groups ) : void
+	{
+		$view = new \Aimeos\Base\View\Standard();
+		$view->addHelper( 'access', new \Aimeos\Base\View\Helper\Access\Standard( $view, $groups ) );
+		$this->context->setView( $view );
 	}
 }

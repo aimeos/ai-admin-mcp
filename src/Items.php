@@ -10,7 +10,10 @@ use Nyholm\Psr7\UploadedFile;
 
 class Items
 {
-	public function __construct( private \Aimeos\MShop\ContextIface $context )
+	/**
+	 * @param \Closure(string, string):void $authorize
+	 */
+	public function __construct( private \Aimeos\MShop\ContextIface $context, private \Closure $authorize )
 	{
 	}
 
@@ -227,7 +230,8 @@ class Items
 		$siteId = (string) $this->context->user()?->getSiteId();
 
 		if( !$this->context->view()->access( ['super'] )
-			&& ( $siteId === '' || $item->getSiteId() === '' || !str_starts_with( $item->getSiteId(), $siteId ) ) ) {
+			&& ( $siteId === '' || $item->getSiteId() === '' || !str_starts_with( $item->getSiteId(), $siteId ) )
+		) {
 			throw new Exception( 'Forbidden', 403 );
 		}
 
@@ -264,7 +268,16 @@ class Items
 
 		foreach( $entries as $domain => $list )
 		{
-			$domainManager = \Aimeos\MShop::create( $this->context, (string) $domain );
+			$list = (array) $list;
+			$permissions = map( $list )
+				->map( fn( $raw ) => !empty( ( (array) $raw )['item'] ) ? 'save' : 'get' )
+				->unique();
+
+			foreach( $permissions as $permission ) {
+				( $this->authorize )( (string) $domain, $permission );
+			}
+
+			$domainManager = null;
 			$listItems = $item->getListItems( (string) $domain, null, null, false );
 			$refItems = $item->getRefItems( (string) $domain, null, null, false );
 
@@ -291,13 +304,19 @@ class Items
 				}
 				$refItem = null;
 
-				if( $refEntry ) {
+				if( $refEntry )
+				{
+					$domainManager ??= \Aimeos\MShop::create( $this->context, (string) $domain );
 					$refItem = $listItem->getRefItem() ?? $refItems->get( $refId ) ?? $domainManager->create();
 					$refItem = $this->update( $domainManager, $refItem, $refEntry, (string) $domain );
 				}
 
 				$item->addListItem( (string) $domain, $listItem->fromArray( $listData, true ), $refItem );
 				unset( $listItems[$listItem->getId()] );
+			}
+
+			if( !$listItems->isEmpty() ) {
+				( $this->authorize )( (string) $domain, 'delete' );
 			}
 
 			$item->deleteListItems( $listItems );
