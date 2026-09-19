@@ -269,8 +269,14 @@ class Items
 		foreach( $entries as $domain => $list )
 		{
 			$list = (array) $list;
+
+			// Referenced items are created/updated with their own manager, so a nested
+			// item requires the "save" permission of that domain. Group memberships are
+			// granted through list references, so linking a group is privileged too and
+			// always requires "save" - even when only a reference ID is passed.
+			$default = ( (string) $domain === 'group' ) ? 'save' : 'get';
 			$permissions = map( $list )
-				->map( fn( $raw ) => !empty( ( (array) $raw )['item'] ) ? 'save' : 'get' )
+				->map( fn( $raw ) => !empty( ( (array) $raw )['item'] ) ? 'save' : $default )
 				->unique();
 
 			foreach( $permissions as $permission ) {
