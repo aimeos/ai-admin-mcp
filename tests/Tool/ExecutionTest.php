@@ -125,6 +125,23 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSaveCustomerPasswordRejected() : void
+	{
+		$this->setAccess( ['super'] );
+
+		$errors = ( new \Aimeos\Admin\Mcp\Tool\Customer\Save( $this->context ) )->schema()
+			->validate( ['items' => [['code' => 'test-mcp', 'password' => 'secret']]] );
+
+		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
+		$items = new \Aimeos\Admin\Mcp\Items( $this->context, fn() => true );
+		$item = $items->update( $manager, $manager->create(), ['code' => 'test-mcp', 'password' => 'secret'], 'customer' );
+
+		$this->assertNotEmpty( $errors );
+		$this->assertSame( 'test-mcp', $item->getCode() );
+		$this->assertSame( '', $item->getPassword() );
+	}
+
+
 	public function testSaveProductWithExistingNestedPluginForbidden() : void
 	{
 		$this->assertNestedPluginForbidden( ['id' => '2147483647'] );

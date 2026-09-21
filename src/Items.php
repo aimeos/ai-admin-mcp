@@ -212,10 +212,9 @@ class Items
 			$item->setGroups( array_unique( (array) $entry['groups'] ) );
 		}
 
-		if( $view->access( ['super', 'admin'] ) || $item->getId() === $this->context->user()?->getId() )
-		{
-			isset( $entry['password'] ) ? $item->setPassword( (string) $entry['password'] ) : null;
-			isset( $entry['code'] ) ? $item->setCode( (string) $entry['code'] ) : null;
+		// Passwords can't be set via MCP
+		if( isset( $entry['code'] ) && ( $view->access( ['super', 'admin'] ) || $item->getId() === $this->context->user()?->getId() ) ) {
+			$item->setCode( (string) $entry['code'] );
 		}
 
 		return $item;
