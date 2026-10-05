@@ -20,7 +20,7 @@ jobs:
       - restore_cache:
           keys:
             - php<< parameters.php-version >>-{{ checksum "composer.json" }}
-      - run: composer req --no-update "aimeos/prisma:dev-master" "nyholm/psr7:~1.2"
+      - run: composer req --no-update "aimeos/prisma:~0.7" "nyholm/psr7:~1.2"
       - run: composer update -n --prefer-dist
       - save_cache:
           key: php<< parameters.php-version >>-{{ checksum "composer.json" }}
