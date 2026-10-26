@@ -63,6 +63,28 @@ final class Tools
 	 */
 	public static function create( \Aimeos\MShop\ContextIface $context ) : array
 	{
+		/** admin/mcp/tools
+		 * List of tool classes offered to the MCP clients
+		 *
+		 * By default, all built-in tools are available and the user groups
+		 * allowed to execute them are configured below "admin/mcp/resource".
+		 * If you set this option, your list replaces the built-in tools
+		 * completely. Use it to offer only a subset of the tools to the MCP
+		 * clients or to add your own tools, e.g.
+		 *
+		 *  'admin/mcp/tools' => [
+		 *      \Aimeos\Admin\Mcp\Tool\Product\Get::class,
+		 *      \Aimeos\Admin\Mcp\Tool\Product\Search::class,
+		 *      \MyVendor\Admin\Mcp\Tool\Product\Import::class,
+		 *  ]
+		 *
+		 * Each class must extend \Aimeos\Admin\Mcp\Tool and the tool names
+		 * must be unique.
+		 *
+		 * @param array List of fully qualified class names
+		 * @since 2026.10
+		 * @see admin/mcp/resource/product/get
+		 */
 		$classes = $context->config()->get( 'admin/mcp/tools', self::classes() );
 
 		if( !is_array( $classes ) ) {

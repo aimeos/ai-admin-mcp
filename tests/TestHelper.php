@@ -56,6 +56,7 @@ class TestHelper
 		$context = new \Aimeos\MShop\Context();
 		$paths = self::aimeos()->getConfigPaths();
 		$config = new \Aimeos\Base\Config\Decorator\Memory( new \Aimeos\Base\Config\PHPArray( [], $paths ) );
+		$config = new \Aimeos\Base\Config\Decorator\Documentor( $config, __DIR__ . DIRECTORY_SEPARATOR . 'confdoc.ser' );
 		$config->apply( ['resource' => ['fs' => ['adapter' => 'Standard', 'basedir' => __DIR__ . '/tmp']]] );
 		$context->setConfig( $config );
 		$context->setLogger( new \Aimeos\Base\Logger\Errorlog() );
