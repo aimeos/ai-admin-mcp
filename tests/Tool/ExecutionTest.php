@@ -142,6 +142,52 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSaveMediaOfRestrictedDomainForbidden() : void
+	{
+		$this->assertMediaForbidden( 'service', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
+			->execute( ['items' => [['id' => $id, 'label' => 'Changed by editor']]] ) );
+	}
+
+
+	public function testSaveMediaIntoRestrictedDomainForbidden() : void
+	{
+		$this->assertMediaForbidden( 'product', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
+			->execute( ['items' => [['id' => $id, 'domain' => 'service', 'label' => 'Changed by editor']]] ) );
+	}
+
+
+	public function testDeleteMediaOfRestrictedDomainForbidden() : void
+	{
+		$this->assertMediaForbidden( 'plugin', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Delete( $this->context ) )
+			->execute( ['ids' => [$id]] ) );
+	}
+
+
+	public function testSaveAndDeleteMediaOfAllowedDomain() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$id = $manager->save( $manager->create()->setDomain( 'product' )->setType( 'default' )
+			->setLabel( 'MCP test media' )->setUrl( 'test.jpg' ) )->getId();
+
+		try
+		{
+			$this->setAccess( ['editor'] );
+
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
+				->execute( ['items' => [['id' => $id, 'label' => 'Changed by editor']]] );
+			$this->assertSame( 'Changed by editor', $result['items'][0]['label'] );
+
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Delete( $this->context ) )
+				->execute( ['ids' => [(string) $id, '2147483647']] );
+			$this->assertSame( [(string) $id], $result['ids'] );
+		}
+		finally
+		{
+			$manager->delete( $id );
+		}
+	}
+
+
 	public function testSaveProductWithExistingNestedPluginForbidden() : void
 	{
 		$this->assertNestedPluginForbidden( ['id' => '2147483647'] );
@@ -257,6 +303,33 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		{
 			$this->deleteBy( 'product', 'product.code', $code );
 			$this->deleteBy( 'plugin', 'plugin.label', $label );
+		}
+	}
+
+
+	private function assertMediaForbidden( string $domain, \Closure $call ) : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$id = $manager->save( $manager->create()->setDomain( $domain )->setType( 'default' )
+			->setLabel( 'MCP test media' )->setUrl( 'test.jpg' ) )->getId();
+
+		try
+		{
+			$this->setAccess( ['editor'] );
+			$call( (string) $id );
+			$this->fail( 'Expected 403 exception' );
+		}
+		catch( Exception $e )
+		{
+			$this->assertSame( 403, $e->getCode() );
+
+			$item = $manager->get( $id );
+			$this->assertSame( $domain, $item->getDomain() );
+			$this->assertSame( 'MCP test media', $item->getLabel() );
+		}
+		finally
+		{
+			$manager->delete( $id );
 		}
 	}
 

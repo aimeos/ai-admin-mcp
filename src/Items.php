@@ -72,6 +72,24 @@ class Items
 
 
 	/**
+	 * Checks if the user has the permission for the domain owning the item.
+	 *
+	 * Items shared between domains (e.g. prices, texts and media) are owned by the
+	 * domain stored in their "<type>.domain" field. Managing them requires the same
+	 * permission as managing the owning domain, so they can't be changed via their
+	 * own tools if the user isn't allowed to manage the owning domain.
+	 */
+	public function permit( ItemIface $item, string $permission ) : void
+	{
+		$domain = (string) $item->get( str_replace( '/', '.', $item->getResourceType() ) . '.domain' );
+
+		if( $domain !== '' ) {
+			( $this->authorize )( $domain, $permission );
+		}
+	}
+
+
+	/**
 	 * Updates an item from unprefixed tool input.
 	 *
 	 * @param array<string, mixed> $entry
@@ -80,6 +98,9 @@ class Items
 	{
 		$data = $this->prefix( $domain, $entry );
 
+		// Check before and after the update so items can't be moved into or out of restricted domains
+		$this->permit( $item, 'save' );
+
 		if( $item instanceof \Aimeos\MShop\Locale\Item\Site\Iface ) {
 			$item = $this->updateSite( $item, $data );
 		} elseif( $item instanceof \Aimeos\MShop\Customer\Item\Iface ) {
@@ -87,6 +108,8 @@ class Items
 		} else {
 			$item = $item->fromArray( $data, true );
 		}
+
+		$this->permit( $item, 'save' );
 
 		if( isset( $entry['address'] ) && $item instanceof \Aimeos\MShop\Common\Item\AddressRef\Iface ) {
 			$item = $this->updateAddresses( $manager, $item, (array) $entry['address'], $domain . '/address' );
