@@ -36,7 +36,7 @@ abstract class Aggregate extends Base
 		$filter = $manager->filter()
 			->order( (array) ( $arguments['sort'] ?? [] ) )
 			->slice( 0, (int) ( $arguments['limit'] ?? 10000 ) );
-		$this->addSiteFilter( $filter );
+		$this->addAccessFilter( $filter );
 
 		if( $conditions = (array) ( $arguments['filter'] ?? [] ) ) {
 			$filter->add( $filter->parse( $conditions ) );

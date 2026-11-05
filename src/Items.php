@@ -11,9 +11,9 @@ use Nyholm\Psr7\UploadedFile;
 class Items
 {
 	/**
-	 * @param \Closure(string, string):void $authorize
+	 * @param \Closure(string, string):bool $allowed
 	 */
-	public function __construct( private \Aimeos\MShop\ContextIface $context, private \Closure $authorize )
+	public function __construct( private \Aimeos\MShop\ContextIface $context, private \Closure $allowed )
 	{
 	}
 
@@ -48,7 +48,7 @@ class Items
 			$result['property'] = $this->collection( $item->getPropertyItems( null, false ), $domain . '/property', $depth + 1 );
 		}
 
-		if( $item instanceof \Aimeos\MShop\Product\Item\Iface ) {
+		if( $item instanceof \Aimeos\MShop\Product\Item\Iface && ( $this->allowed )( 'stock', 'get' ) ) {
 			$result['stock'] = $this->collection( $item->getStockItems(), 'stock', $depth + 1 );
 		}
 
@@ -84,7 +84,7 @@ class Items
 		$domain = (string) $item->get( str_replace( '/', '.', $item->getResourceType() ) . '.domain' );
 
 		if( $domain !== '' ) {
-			( $this->authorize )( $domain, $permission );
+			$this->authorize( $domain, $permission );
 		}
 	}
 
@@ -140,6 +140,17 @@ class Items
 
 
 	/**
+	 * Throws an exception if the user lacks the permission for the domain
+	 */
+	private function authorize( string $domain, string $permission ) : void
+	{
+		if( !( $this->allowed )( $domain, $permission ) ) {
+			throw new Exception( 'Forbidden', 403 );
+		}
+	}
+
+
+	/**
 	 * @param iterable<ItemIface> $items
 	 * @return array<int, array<string, mixed>>
 	 */
@@ -166,6 +177,13 @@ class Items
 
 		foreach( $domains as $domain )
 		{
+			// List and referenced items can contain sensitive data of the referenced domain
+			// (e.g. payment tokens in customer/service list configs or provider credentials
+			// in service configs), so they are only returned if the user can view that domain
+			if( !( $this->allowed )( (string) $domain, 'get' ) ) {
+				continue;
+			}
+
 			$entries = [];
 
 			foreach( $item->getListItems( (string) $domain, null, null, false ) as $listItem )
@@ -302,7 +320,7 @@ class Items
 				->unique();
 
 			foreach( $permissions as $permission ) {
-				( $this->authorize )( (string) $domain, $permission );
+				$this->authorize( (string) $domain, $permission );
 			}
 
 			$domainManager = null;
@@ -344,7 +362,7 @@ class Items
 			}
 
 			if( !$listItems->isEmpty() ) {
-				( $this->authorize )( (string) $domain, 'delete' );
+				$this->authorize( (string) $domain, 'delete' );
 			}
 
 			$item->deleteListItems( $listItems );
