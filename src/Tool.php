@@ -74,14 +74,20 @@ abstract class Tool
 	}
 
 
-	protected function authorize( ?string $domain = null, ?string $permission = null ) : void
+	protected function allowed( ?string $domain = null, ?string $permission = null ) : bool
 	{
 		$groups = (array) $this->context->config()->get(
 			'admin/mcp/resource/' . ( $domain ?? $this->domain() ) . '/' . ( $permission ?? $this->permission() ),
 			[]
 		);
 
-		if( $this->context->view()->access( $groups ) !== true ) {
+		return $this->context->view()->access( $groups ) === true;
+	}
+
+
+	protected function authorize( ?string $domain = null, ?string $permission = null ) : void
+	{
+		if( !$this->allowed( $domain, $permission ) ) {
 			throw new Exception( 'Forbidden', 403 );
 		}
 	}
@@ -109,7 +115,7 @@ abstract class Tool
 
 	final protected function items() : Items
 	{
-		return $this->items ??= new Items( $this->context, $this->authorize( ... ) );
+		return $this->items ??= new Items( $this->context, $this->allowed( ... ) );
 	}
 
 

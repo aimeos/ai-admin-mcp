@@ -6,6 +6,8 @@ use Aimeos\Admin\Mcp\Exception;
 use Aimeos\Admin\Mcp\Tool\Catalog\SearchTree;
 use Aimeos\Admin\Mcp\Tool\Catalog\Tree;
 use Aimeos\Admin\Mcp\Tool\Customer\Aggregate;
+use Aimeos\Admin\Mcp\Tool\Customer\Get as CustomerGet;
+use Aimeos\Admin\Mcp\Tool\Customer\Search as CustomerSearch;
 use Aimeos\Admin\Mcp\Tool\Product\Delete;
 use Aimeos\Admin\Mcp\Tool\Product\Find;
 use Aimeos\Admin\Mcp\Tool\Product\Save;
@@ -163,6 +165,44 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testGetMediaOfRestrictedDomainForbidden() : void
+	{
+		$this->assertMediaForbidden( 'service', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Get( $this->context ) )
+			->execute( ['id' => $id] ) );
+	}
+
+
+	public function testSearchMediaOfRestrictedDomainExcluded() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$label = 'MCP test media ' . bin2hex( random_bytes( 4 ) );
+		$ids = [];
+
+		try
+		{
+			foreach( ['product', 'service'] as $domain ) {
+				$ids[$domain] = (string) $manager->save( $manager->create()->setDomain( $domain )->setType( 'default' )
+					->setLabel( $label )->setUrl( 'test.jpg' ) )->getId();
+			}
+
+			$args = ['filter' => ['==' => ['media.label' => $label]]];
+
+			$this->setAccess( ['editor'] );
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Search( $this->context ) )->execute( $args );
+
+			$this->assertSame( 1, $result['total'] );
+			$this->assertSame( $ids['product'], (string) $result['items'][0]['id'] );
+
+			$this->setAccess( ['admin'] );
+			$this->assertSame( 2, ( new \Aimeos\Admin\Mcp\Tool\Media\Search( $this->context ) )->execute( $args )['total'] );
+		}
+		finally
+		{
+			$manager->delete( array_values( $ids ) );
+		}
+	}
+
+
 	public function testSaveAndDeleteMediaOfAllowedDomain() : void
 	{
 		$manager = \Aimeos\MShop::create( $this->context, 'media' );
@@ -263,6 +303,81 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 			}
 
 			$this->deleteBy( 'group', 'group.code', $groupCode );
+		}
+	}
+
+
+	public function testCustomerServiceListsRequireServicePermission() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
+		$serviceManager = \Aimeos\MShop::create( $this->context, 'service' );
+		$serviceCode = 'test-mcp-' . bin2hex( random_bytes( 4 ) );
+		$serviceId = $serviceManager->save( $serviceManager->create()->setType( 'payment' )->setCode( $serviceCode )
+			->setLabel( 'MCP service' )->setProvider( 'Standard' )->setConfig( ['apikey' => 'mcp-secret-key'] ) )->getId();
+
+		$listItem = $manager->createListItem()->setType( 'default' )->setRefId( $serviceId )
+			->setConfigValue( 'repay', ['token' => 'mcp-secret-token'] );
+		$item = $manager->create()->setCode( 'test-mcp-' . bin2hex( random_bytes( 4 ) ) )
+			->setLabel( 'MCP service list test' )->addListItem( 'service', $listItem );
+		$id = '';
+
+		try
+		{
+			$id = (string) $manager->save( $item )->getId();
+			$args = ['id' => $id, 'include' => ['service']];
+			$filter = ['filter' => ['==' => ['customer.id' => $id]], 'include' => ['service']];
+
+			$this->setAccess( ['editor'] );
+
+			$item = ( new CustomerGet( $this->context ) )->execute( $args )['item'];
+			$items = ( new CustomerSearch( $this->context ) )->execute( $filter )['items'];
+
+			$this->assertArrayNotHasKey( 'service', $item['lists'] );
+			$this->assertArrayNotHasKey( 'service', $items[0]['lists'] );
+			$this->assertStringNotContainsString( 'mcp-secret', (string) json_encode( [$item, $items] ) );
+
+			$this->setAccess( ['admin'] );
+
+			$item = ( new CustomerGet( $this->context ) )->execute( $args )['item'];
+
+			$this->assertSame( 'mcp-secret-token', $item['lists']['service'][0]['config']['repay']['token'] );
+			$this->assertSame( 'mcp-secret-key', $item['lists']['service'][0]['item']['config']['apikey'] );
+		}
+		finally
+		{
+			$id !== '' && $manager->delete( $id );
+			$serviceManager->delete( $serviceId );
+		}
+	}
+
+
+	public function testProductStockRequiresStockPermission() : void
+	{
+		$config = $this->context->config();
+		$get = $config->get( 'admin/mcp/resource/stock/get' );
+		$config->set( 'admin/mcp/resource/stock/get', ['admin'] );
+
+		$manager = \Aimeos\MShop::create( $this->context, 'product' );
+		$stockManager = \Aimeos\MShop::create( $this->context, 'stock' );
+		$code = 'test-mcp-' . bin2hex( random_bytes( 4 ) );
+		$id = (string) $manager->save( $manager->create()->setCode( $code )->setLabel( 'MCP stock test' ) )->getId();
+
+		try
+		{
+			$stockManager->save( $stockManager->create()->setProductId( $id )->setType( 'default' )->setStockLevel( 10 ) );
+			$args = ['code' => $code, 'include' => ['stock']];
+
+			$this->setAccess( ['editor'] );
+			$this->assertArrayNotHasKey( 'stock', ( new Find( $this->context ) )->execute( $args )['item'] );
+
+			$this->setAccess( ['admin'] );
+			$this->assertSame( 10, ( new Find( $this->context ) )->execute( $args )['item']['stock'][0]['stocklevel'] );
+		}
+		finally
+		{
+			$config->set( 'admin/mcp/resource/stock/get', $get );
+			$stockManager->delete( $stockManager->search( $stockManager->filter()->add( 'stock.productid', '==', $id ) )->keys() );
+			$manager->delete( $id );
 		}
 	}
 

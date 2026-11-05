@@ -33,7 +33,7 @@ abstract class SearchTree extends Base
 		$prefix = str_replace( '/', '.', $this->domain() );
 		$include = (array) ( $arguments['include'] ?? [] );
 		$filter = $manager->filter()->order( ['-' . $prefix . '.level', 'sort:' . $prefix . ':position'] );
-		$this->addSiteFilter( $filter );
+		$this->addAccessFilter( $filter );
 
 		if( $conditions = (array) ( $arguments['filter'] ?? [] ) ) {
 			$filter->add( $filter->parse( $conditions ) );
@@ -81,7 +81,7 @@ abstract class SearchTree extends Base
 			->add( $prefix . '.id', '==', $parentIds->unique() )
 			->order( ['-' . $prefix . '.level', 'sort:' . $prefix . ':position'] )
 			->slice( 0, 0x7fffffff );
-		$this->addSiteFilter( $filter );
+		$this->addAccessFilter( $filter );
 		$parents = $manager->search( $filter, $include );
 		$indexes = $parentIds->unique()->flip();
 		$itemKeys = map();

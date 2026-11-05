@@ -35,7 +35,7 @@ abstract class Search extends Base
 		$filter = $manager->filter()
 			->order( (array) ( $arguments['sort'] ?? [] ) )
 			->slice( (int) ( $arguments['offset'] ?? 0 ), (int) ( $arguments['limit'] ?? 100 ) );
-		$this->addSiteFilter( $filter );
+		$this->addAccessFilter( $filter );
 
 		if( $conditions = (array) ( $arguments['filter'] ?? [] ) ) {
 			$filter->add( $filter->parse( $conditions ) );
