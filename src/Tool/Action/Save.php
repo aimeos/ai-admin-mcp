@@ -59,10 +59,12 @@ abstract class Save extends Base
 
 
 	/**
+	 * Returns the domains of the referenced items which must be loaded for updating
+	 *
 	 * @param array<int, array<string, mixed>> $entries
 	 * @return array<int, string>
 	 */
-	private function references( array $entries ) : array
+	protected function references( array $entries ) : array
 	{
 		$result = [];
 
