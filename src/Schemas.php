@@ -42,7 +42,13 @@ class Schemas
 
 			$pos = strrpos( $attributeCode, '.' );
 			$code = substr( $attributeCode, $pos === false ? 0 : $pos + 1 );
-			$type = $code === 'id' ? Schema::string() : $this->type( (string) $attribute->getType() );
+			// accept the values as returned by the items, e.g. parent IDs as strings and tax flags as booleans
+			$type = match( true ) {
+				$code === 'id' => Schema::string(),
+				$code === 'taxflag' => Schema::anyOf( [Schema::boolean(), Schema::integer()] ),
+				str_ends_with( $code, 'id' ) => Schema::anyOf( [Schema::string(), Schema::integer()] ),
+				default => $this->type( (string) $attribute->getType() ),
+			};
 			$fields[$code] = $type->description( (string) $attribute->getLabel() );
 		}
 
@@ -76,16 +82,35 @@ class Schemas
 			$fields['stock'] = Schema::array()->items( $this->item( 'stock' ) );
 		}
 
-		if( $item instanceof \Aimeos\MShop\Media\Item\Iface ) {
+		if( $item instanceof \Aimeos\MShop\Media\Item\Iface )
+		{
+			// local paths and file systems are only set by uploads, unchanged values are accepted so fetched items can be saved again
+			if( isset( $fields['filesystem'] ) ) {
+				$fields['filesystem'] = $fields['filesystem']->description( 'File system of the media files, can not be changed' );
+			}
+
+			foreach( ['url', 'preview', 'previews'] as $key )
+			{
+				if( isset( $fields[$key] ) ) {
+					$fields[$key] = $fields[$key]->description( 'Absolute http(s) URLs of remote files only, use file/filePreview for local files' );
+				}
+			}
+
 			$fields['file'] = $this->binary();
 			$fields['filePreview'] = $this->binary();
 		}
 
 		if( $item instanceof \Aimeos\MShop\Order\Item\Iface )
 		{
-			$fields['address'] = Schema::array()->items( $this->item( 'order/address' ) );
+			$fields['address'] = Schema::array()->items( $this->item( 'order/address' ) )
+				->description( 'Updates addresses by ID or replaces the ones of the same type without ID, the type of addresses with ID can not be changed' );
 			$fields['product'] = Schema::array()->items( $this->orderProduct() );
 			$fields['service'] = Schema::array()->items( $this->orderService() );
+			$fields['status'] = Schema::array()->items( $this->item( 'order/status' ) )->description( 'Read-only, statuses are referenced by ID' );
+			$fields['coupon'] = Schema::array()->items( Schema::object( [
+				'code' => Schema::string(),
+				'productIds' => Schema::array()->items( Schema::string() ),
+			] )->withoutAdditionalProperties() )->description( 'Read-only' );
 		}
 
 		return Schema::object( $fields )->withoutAdditionalProperties();
@@ -116,26 +141,32 @@ class Schemas
 	}
 
 
-	private function orderProduct() : ObjectType
+	private function orderProduct( bool $sub = false ) : ObjectType
 	{
 		$fields = $this->fields( \Aimeos\MShop::create( $this->context, 'order/product' )->getSearchAttributes( false ) );
-		$fields['attribute'] = Schema::array()->items( $this->item( 'order/product/attribute' ) );
-		$fields['product'] = Schema::array()->items( Schema::object(
-			$this->fields( \Aimeos\MShop::create( $this->context, 'order/product' )->getSearchAttributes( false ) ) + [
-				'attribute' => Schema::array()->items( $this->item( 'order/product/attribute' ) ),
-			]
-		)->withoutAdditionalProperties() );
+		$fields['id'] = Schema::string()->required()->description( 'ID of the existing ordered product' );
+		$fields['attribute'] = Schema::array()->items( $this->item( 'order/product/attribute' ) )->description( 'Read-only' );
 
-		return Schema::object( $fields )->withoutAdditionalProperties();
+		$fields['product'] = $sub
+			? Schema::array()->max( 0 )->description( 'Sub-products of bundles have no sub-products' )
+			: Schema::array()->items( $this->orderProduct( true ) )->description( 'Sub-products of bundles' );
+
+		return Schema::object( $fields )->withoutAdditionalProperties()->description( sprintf(
+			'Only %1$s of existing ordered products can be changed, other fields must be unchanged',
+			join( ', ', \Aimeos\Admin\Mcp\Items::ORDER_PRODUCT_FIELDS )
+		) );
 	}
 
 
 	private function orderService() : ObjectType
 	{
 		$fields = $this->fields( \Aimeos\MShop::create( $this->context, 'order/service' )->getSearchAttributes( false ) );
-		$fields['attribute'] = Schema::array()->items( $this->item( 'order/service/attribute' ) );
-		$fields['transaction'] = Schema::array()->items( $this->item( 'order/service/transaction' ) );
+		$fields['id'] = Schema::string()->required()->description( 'ID of the existing order service' );
+		$fields['attribute'] = Schema::array()->items( $this->item( 'order/service/attribute' ) )
+			->description( 'Updates or adds attributes of the order service, existing attributes are referenced by ID or by type and code, type and code of existing attributes can not be changed, attributes are never removed' );
+		$fields['transaction'] = Schema::array()->items( $this->item( 'order/service/transaction' ) )->description( 'Read-only' );
 
-		return Schema::object( $fields )->withoutAdditionalProperties();
+		return Schema::object( $fields )->withoutAdditionalProperties()
+			->description( 'Only the attributes of existing order services can be changed, other fields must be unchanged' );
 	}
 }

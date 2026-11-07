@@ -144,6 +144,606 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSaveMediaRemoteUrls() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$item = $manager->create()->setUrl( 'test.jpg' )->setPreview( 'test-1.jpg' );
+
+		$item = $this->items()->update( $manager, $item, [
+			'label' => 'paths', 'url' => 'https://example.com/test.jpg',
+			'previews' => [100 => 'https://example.com/test-100.jpg'], 'filesystem' => 'fs-media',
+		], 'media' );
+
+		$this->assertSame( 'paths', $item->getLabel() );
+		$this->assertSame( 'https://example.com/test.jpg', $item->getUrl() );
+		$this->assertSame( 'https://example.com/test-100.jpg', $item->getPreview() );
+		$this->assertSame( 'fs-media', $item->getFileSystem() );
+	}
+
+
+	public function testSaveMediaUnchangedPathsIgnored() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$item = $manager->create()->setUrl( 'test.jpg' )->setPreviews( [1 => 'test-1.jpg'] );
+
+		$item = $this->items()->update( $manager, $item, [
+			'label' => 'paths', 'url' => 'test.jpg', 'previews' => [1 => 'test-1.jpg'],
+		], 'media' );
+
+		$this->assertSame( 'paths', $item->getLabel() );
+		$this->assertSame( 'test.jpg', $item->getUrl() );
+	}
+
+
+	public function testSaveMediaFetchedItemValid() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$media = $manager->search( $manager->filter()->slice( 0, 1 ) )->first();
+		$entry = $this->items()->toArray( $media, 'media' );
+		$entry['label'] = 'changed';
+
+		$tool = new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context );
+		$item = $this->items()->update( $manager, $media, $entry, 'media' );
+
+		$this->assertArrayHasKey( 'filesystem', $entry );
+		$this->assertEmpty( $tool->schema()->validate( ['items' => [$entry]] ) );
+		$this->assertSame( 'changed', $item->getLabel() );
+		$this->assertSame( $media->getUrl(), $item->getUrl() );
+	}
+
+
+	public function testSaveMediaOutdatedPreviewVersion() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$fetched = $manager->create( ['media.mtime' => '2020-01-01 00:00:00', 'media.mimetype' => 'image/jpeg', 'media.preview' => [1 => 'a-1.jpg']] );
+		$entry = $this->items()->toArray( $fetched, 'media' );
+		$entry['label'] = 'changed';
+
+		$this->assertStringContainsString( '?v=', $entry['preview'] );
+
+		$reloaded = $manager->create( ['media.mtime' => '2021-01-01 00:00:00', 'media.mimetype' => 'image/jpeg', 'media.preview' => [1 => 'a-1.jpg']] );
+		$item = $this->items()->update( $manager, $reloaded, $entry, 'media' );
+
+		$this->assertSame( 'changed', $item->getLabel() );
+		$this->assertSame( [1 => 'a-1.jpg'], $item->getPreviews() );
+	}
+
+
+	public function testSaveMediaClearPaths() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+		$item = $manager->create()->setUrl( 'https://example.com/a.jpg' )->setPreviews( [1 => 'https://example.com/a-1.jpg'] );
+
+		$item = $this->items()->update( $manager, $item, ['url' => '', 'previews' => []], 'media' );
+
+		$this->assertSame( '', $item->getUrl() );
+		$this->assertSame( [], $item->getPreviews() );
+	}
+
+
+	public function testSaveMediaLocalPathForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $manager->create()->setUrl( 'test.jpg' ), ['url' => 'index.php'], 'media' );
+	}
+
+
+	public function testSaveMediaLocalPreviewForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $manager->create(), [
+			'previews' => [1 => 'https://example.com/a.jpg', 2 => '../index.php'],
+		], 'media' );
+	}
+
+
+	public function testSaveMediaFilesystemForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'media' );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $manager->create(), ['filesystem' => 'fs'], 'media' );
+	}
+
+
+	public function testSaveOrderAddressReplacesType() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$address = $manager->createAddress()->setId( '5' )->setParentId( '7' )->setFirstname( 'old' )->setLastname( 'old' );
+		$order = $this->order()->addAddress( $address, 'payment', 1 );
+
+		$item = $this->items()->update( $manager, $order, [
+			'address' => [['type' => 'payment', 'firstname' => 'new'], ['type' => 'payment', 'firstname' => 'second']],
+		], 'order' );
+
+		$list = $item->getAddress( 'payment' );
+		$this->assertCount( 2, $list );
+		$this->assertSame( '5', $list[1]->getId() );
+		$this->assertSame( '7', $list[1]->getParentId() );
+		$this->assertSame( 'new', $list[1]->getFirstname() );
+		$this->assertSame( '', $list[1]->getLastname() );
+		$this->assertNull( end( $list )->getId() );
+		$this->assertSame( 'second', end( $list )->getFirstname() );
+	}
+
+
+	public function testSaveOrderAddressMixed() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$address = $manager->createAddress()->setId( '5' )->setParentId( '7' )->setFirstname( 'old' );
+
+		foreach( [[0, 1], [1, 0]] as $order )
+		{
+			$entries = [['id' => '5', 'lastname' => 'updated'], ['type' => 'payment', 'firstname' => 'new']];
+			$item = $this->items()->update( $manager, $this->order()->addAddress( $address, 'payment', 1 ), [
+				'address' => [$entries[$order[0]], $entries[$order[1]]],
+			], 'order' );
+
+			$list = $item->getAddress( 'payment' );
+			$this->assertCount( 2, $list );
+			$this->assertSame( '5', $list[1]->getId() );
+			$this->assertSame( 'old', $list[1]->getFirstname() );
+			$this->assertSame( 'updated', $list[1]->getLastname() );
+			$this->assertNull( end( $list )->getId() );
+			$this->assertSame( 'new', end( $list )->getFirstname() );
+		}
+	}
+
+
+	public function testSaveOrderAddressUnknownId() : void
+	{
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $this->order(), [
+			'address' => [['id' => '999', 'firstname' => 'x']],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderSubProduct() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$sub = $manager->createProduct()->setId( '3' )->setProductCode( 'U:TESTSUB' )->setQuantity( 1 );
+		$order->getProducts()->first()->setProducts( [$sub] );
+
+		$item = $this->items()->update( $manager, $order, [
+			'product' => [['id' => '3', 'statusdelivery' => 4]],
+		], 'order' );
+
+		$this->assertSame( 4, $item->getProducts()->first()->getProducts()->first()->getStatusDelivery() );
+	}
+
+
+	public function testSaveOrderProductsLimited() : void
+	{
+		$order = $this->order();
+		$product = $order->getProducts()->first();
+
+		$item = $this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $order, [
+			'product' => [['id' => $product->getId(), 'statusdelivery' => 3, 'notes' => 'mcp', 'prodcode' => $product->getProductCode()]],
+		], 'order' );
+
+		$product = $item->getProducts()->first();
+		$this->assertSame( 3, $product->getStatusDelivery() );
+		$this->assertSame( 'mcp', $product->getNotes() );
+	}
+
+
+	public function testSaveOrderProductReadonlyForbidden() : void
+	{
+		$order = $this->order();
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $order, [
+			'product' => [['id' => $order->getProducts()->first()->getId(), 'statusdelivery' => 3, 'prodcode' => 'injected']],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderServiceReadonlyForbidden() : void
+	{
+		$order = $this->order();
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $order, [
+			'service' => [['id' => $order->getService( 'payment', 0 )->getId(), 'transaction' => [['status' => 6]]]],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderFetchedItemValid() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$sub = $manager->createProduct()->setId( '3' )->setProductCode( 'U:TESTSUB' )->setQuantity( 1 );
+		$order->getProducts()->first()->setProducts( [$sub] );
+
+		$entry = $this->items()->toArray( $order, 'order' );
+		$entry['product'][0]['statusdelivery'] = 3;
+		$entry['product'][0]['product'][0]['statusdelivery'] = 4;
+		unset( $entry['id'] ); // unsaved order
+
+		$errors = ( new \Aimeos\Admin\Mcp\Tool\Order\Save( $this->context ) )->schema()->validate( ['items' => [$entry]] );
+		$this->assertEmpty( $errors, (string) json_encode( $errors ) );
+
+		$item = $this->items()->update( $manager, $order, $entry, 'order' );
+		$this->assertSame( 3, $item->getProducts()->first()->getStatusDelivery() );
+		$this->assertSame( 4, $item->getProducts()->first()->getProducts()->first()->getStatusDelivery() );
+	}
+
+
+	public function testSaveOrderNewProductForbidden() : void
+	{
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $this->order(), [
+			'product' => [['prodcode' => 'injected', 'statusdelivery' => 3]],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderServicesLimited() : void
+	{
+		$order = $this->order();
+		$service = $order->getService( 'payment', 0 );
+		$code = $service->getCode();
+		$num = count( $order->getServices()->flat( 1 ) );
+		$txcount = count( $service->getTransactions() );
+
+		$item = $this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $order, [
+			'service' => [[
+				'id' => $service->getId(), 'code' => $code,
+				'attribute' => [['code' => 'mcp', 'value' => 'test']],
+			]],
+		], 'order' );
+
+		$service = $item->getService( 'payment', 0 );
+		$this->assertSame( $num, count( $item->getServices()->flat( 1 ) ) );
+		$this->assertSame( $code, $service->getCode() );
+		$this->assertSame( $txcount, count( $service->getTransactions() ) );
+		$this->assertSame( 1, count( $service->getAttributeItems() ) );
+		$this->assertSame( 'test', $service->getAttribute( 'mcp', 'payment' ) );
+	}
+
+
+	public function testSaveOrderServiceAttributesMerged() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$service = $order->getService( 'payment', 0 );
+		$service->setAttributeItems( [
+			$manager->createServiceAttribute()->setId( '8' )->setType( 'payment' )->setCode( 'TRANSACTIONID' )->setValue( 'tx-1' ),
+			$manager->createServiceAttribute()->setId( '9' )->setType( 'payment' )->setCode( 'note' )->setValue( 'old' ),
+		] );
+
+		$item = $this->items()->update( $manager, $order, [
+			'service' => [[
+				'id' => $service->getId(),
+				'attribute' => [['code' => 'mcp', 'value' => 'test'], ['code' => 'note', 'value' => 'new']],
+			]],
+		], 'order' );
+
+		$service = $item->getService( 'payment', 0 );
+		$this->assertSame( 3, count( $service->getAttributeItems() ) );
+		$this->assertSame( 'tx-1', $service->getAttribute( 'TRANSACTIONID', 'payment' ) );
+		$this->assertSame( 'new', $service->getAttribute( 'note', 'payment' ) );
+		$this->assertSame( 'test', $service->getAttribute( 'mcp', 'payment' ) );
+		$this->assertSame( 0, count( $service->getAttributeItemsDeleted() ) );
+	}
+
+
+	public function testSaveOrderProductOutdatedMeta() : void
+	{
+		$order = $this->order();
+		$product = $order->getProducts()->first();
+
+		$item = $this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $order, [
+			'product' => [['id' => $product->getId(), 'notes' => 'mcp', 'mtime' => '2000-01-01 00:00:00', 'ctime' => null, 'editor' => 'other']],
+		], 'order' );
+
+		$this->assertSame( 'mcp', $item->getProducts()->first()->getNotes() );
+	}
+
+
+	public function testSaveOrderStatusOutdatedMeta() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order()->addStatus( $manager->createStatus()->setId( '7' )->setType( 'status-payment' )->setValue( '5' ) );
+
+		$status = $this->items()->toArray( $order, 'order' )['status'];
+		$this->assertNotEmpty( $status );
+
+		foreach( $status as $idx => $entry ) {
+			$status[$idx] = ['mtime' => '2000-01-01 00:00:00', 'ctime' => '2000-01-01 00:00:00', 'editor' => 'other'] + $entry;
+		}
+
+		$item = $this->items()->update( $manager, $order, ['status' => $status, 'comment' => 'mcp'], 'order' );
+		$this->assertSame( 'mcp', $item->getComment() );
+	}
+
+
+	public function testSaveOrderCouponChangedForbidden() : void
+	{
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $this->order(), [
+			'coupon' => [['code' => 'MCP', 'productIds' => ['1']]],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderToolFetchedCoupon() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$couponManager = \Aimeos\MShop::create( $this->context, 'order/coupon' );
+		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
+		$product = $manager->createProduct()->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
+		$order = $manager->save( $manager->create()->addProduct( $product ) );
+
+		try
+		{
+			$prodId = $order->getProducts()->first()->getId();
+			$couponManager->save( $couponManager->create()->setParentId( $order->getId() )->setCode( 'MCP' )->setProductId( $prodId ) );
+
+			$fetched = $manager->get( $order->getId(), ['order/product', 'order/coupon'] );
+			$entry = $this->items()->toArray( $fetched, 'order' );
+			$entry['product'][0]['statusdelivery'] = 3;
+			$this->assertSame( [['code' => 'MCP', 'productIds' => [$prodId]]], $entry['coupon'] );
+
+			$tool = new \Aimeos\Admin\Mcp\Tool\Order\Save( $this->context );
+			$this->assertEmpty( $errors = $tool->schema()->validate( ['items' => [$entry]] ), (string) json_encode( $errors ) );
+			$tool->execute( ['items' => [$entry]] );
+
+			$filter = $couponManager->filter()->add( 'order.coupon.parentid', '==', $order->getId() );
+			$this->assertCount( 1, $couponManager->search( $filter ) );
+			$this->assertSame( 3, $manager->get( $order->getId(), ['order/product'] )->getProducts()->first()->getStatusDelivery() );
+		}
+		finally
+		{
+			$manager->delete( $order->getId() );
+		}
+	}
+
+
+	public function testSaveOrderAddressTypeChangeForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order()->addAddress( $manager->createAddress()->setId( '5' )->setLastName( 'Delivery' ), 'delivery' );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $order, ['address' => [['id' => '5', 'type' => 'payment', 'firstname' => 'A']]], 'order' );
+	}
+
+
+	public function testSaveOrderAllTypesReturned() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order()
+			->addService( $manager->createService()->setId( '3' )->setCode( 'unitdeliverycode' )->setType( 'delivery' ), 'delivery' )
+			->addAddress( $manager->createAddress()->setId( '4' )->setLastName( 'Payment' ), 'payment' )
+			->addAddress( $manager->createAddress()->setId( '5' )->setLastName( 'Delivery' ), 'delivery' );
+
+		$entry = $this->items()->toArray( $order, 'order' );
+		$this->assertSame( ['4', '5'], array_column( $entry['address'], 'id' ) );
+		$this->assertSame( ['2', '3'], array_column( $entry['service'], 'id' ) );
+
+		$item = $this->items()->update( $manager, $order, [
+			'address' => [['id' => '4', 'firstname' => 'A'], ['id' => '5', 'firstname' => 'B']],
+			'service' => [['id' => '3', 'attribute' => [['code' => 'mcp', 'value' => '1']]]],
+		], 'order' );
+
+		$this->assertSame( 'A', current( $item->getAddress( 'payment' ) )->getFirstName() );
+		$this->assertSame( 'B', current( $item->getAddress( 'delivery' ) )->getFirstName() );
+		$this->assertSame( '1', $item->getService( 'delivery', 0 )->getAttribute( 'mcp', 'delivery' ) );
+	}
+
+
+	public function testSaveOrderStatusAddedMeanwhile() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order()
+			->addStatus( $manager->createStatus()->setId( '7' )->setType( 'status-payment' )->setValue( '5' ) )
+			->addStatus( $manager->createStatus()->setId( '8' )->setType( 'status-delivery' )->setValue( '1' ) );
+
+		$status = $this->items()->toArray( $order, 'order' )['status'];
+		$order->addStatus( $manager->createStatus()->setId( '9' )->setType( 'status-payment' )->setValue( '6' ) );
+
+		$this->assertSame( ['7', '9', '8'], array_column( $this->items()->toArray( $order, 'order' )['status'], 'id' ) );
+
+		$item = $this->items()->update( $manager, $order, ['status' => array_reverse( $status ), 'comment' => 'mcp'], 'order' );
+		$this->assertSame( 'mcp', $item->getComment() );
+	}
+
+
+	public function testSaveOrderStatusChangedForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order()->addStatus( $manager->createStatus()->setId( '7' )->setType( 'status-payment' )->setValue( '5' ) );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $order, ['status' => [['id' => '7', 'type' => 'status-payment', 'value' => '6']]], 'order' );
+	}
+
+
+	public function testSaveOrderStatusUnknownForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order()->addStatus( $manager->createStatus()->setId( '7' )->setType( 'status-payment' )->setValue( '5' ) );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $order, ['status' => [['type' => 'status-payment', 'value' => '5']]], 'order' );
+	}
+
+
+	public function testSaveOrderToolFetchedStatus() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
+		$product = $manager->createProduct()->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
+		$status = $manager->createStatus()->setType( 'status-payment' )->setValue( '5' );
+		$order = $manager->save( $manager->create()->addProduct( $product )->addStatus( $status ) );
+
+		try
+		{
+			$fetched = $manager->get( $order->getId(), ['order/product', 'order/status'] );
+			$entry = $this->items()->toArray( $fetched, 'order' );
+			$entry['product'][0]['statusdelivery'] = 3;
+			$this->assertNotEmpty( $entry['status'] );
+
+			$tool = new \Aimeos\Admin\Mcp\Tool\Order\Save( $this->context );
+			$this->assertEmpty( $errors = $tool->schema()->validate( ['items' => [$entry]] ), (string) json_encode( $errors ) );
+			$tool->execute( ['items' => [$entry]] );
+
+			$saved = $manager->get( $order->getId(), ['order/product'] );
+			$this->assertSame( 3, $saved->getProducts()->first()->getStatusDelivery() );
+			$this->assertSame( '10.00', $saved->getPrice()->getValue() );
+		}
+		finally
+		{
+			$manager->delete( $order->getId() );
+		}
+	}
+
+
+	public function testSaveOrderServiceAttributeWithAttributeId() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$service = $order->getService( 'payment', 0 );
+		$service->setAttributeItems( [
+			$manager->createServiceAttribute()->setId( '8' )->setType( 'payment' )->setCode( 'option' )->setAttributeId( '12' )->setValue( 'old' ),
+		] );
+
+		$item = $this->items()->update( $manager, $order, [
+			'service' => [['id' => $service->getId(), 'attribute' => [['code' => 'option', 'value' => 'new']]]],
+		], 'order' );
+
+		$service = $item->getService( 'payment', 0 );
+		$this->assertSame( 1, count( $service->getAttributeItems() ) );
+		$this->assertSame( 'new', $service->getAttributeItems()->first()->getValue() );
+		$this->assertSame( '12', $service->getAttributeItems()->first()->getAttributeId() );
+	}
+
+
+	public function testSaveOrderServiceAttributeRenameForbidden() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$service = $order->getService( 'payment', 0 );
+		$service->setAttributeItems( [$manager->createServiceAttribute()->setId( '9' )->setType( 'payment' )->setCode( 'note' )] );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( $manager, $order, [
+			'service' => [['id' => $service->getId(), 'attribute' => [
+				['code' => 'mcp', 'value' => '1'], ['id' => '9', 'code' => 'renamed'], ['code' => 'note', 'value' => 'y'],
+			]]],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderServiceAttributeById() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$service = $order->getService( 'payment', 0 );
+		$service->setAttributeItems( [$manager->createServiceAttribute()->setId( '9' )->setType( 'payment' )->setCode( 'note' )->setValue( 'x' )] );
+
+		$item = $this->items()->update( $manager, $order, [
+			'service' => [['id' => $service->getId(), 'attribute' => [['id' => '9', 'type' => 'payment', 'code' => 'note', 'value' => 'y']]]],
+		], 'order' );
+
+		$this->assertSame( 'y', $item->getService( 'payment', 0 )->getAttribute( 'note', 'payment' ) );
+	}
+
+
+	public function testSaveOrderNewServiceForbidden() : void
+	{
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+
+		$this->items()->update( \Aimeos\MShop::create( $this->context, 'order' ), $this->order(), [
+			'service' => [['type' => 'payment', 'code' => 'paypalexpress']],
+		], 'order' );
+	}
+
+
+	public function testSaveOrderToolLoadsServices() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$service = $manager->createService()->setCode( 'unitpaymentcode' )->setType( 'payment' );
+		$order = $manager->save( $manager->create()->addService( $service, 'payment' ) );
+		$serviceId = $order->getService( 'payment', 0 )->getId();
+
+		try
+		{
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Order\Save( $this->context ) )->execute( ['items' => [[
+				'id' => $order->getId(),
+				'service' => [['id' => $serviceId, 'attribute' => [['code' => 'mcp', 'value' => 'test']]]],
+			]]] );
+
+			$saved = $manager->get( $order->getId(), ['order/service'] )->getService( 'payment', 0 );
+			$this->assertSame( $order->getId(), $result['items'][0]['id'] );
+			$this->assertSame( $serviceId, $saved->getId() );
+			$this->assertSame( 'test', $saved->getAttribute( 'mcp', 'payment' ) );
+		}
+		finally
+		{
+			$manager->delete( $order->getId() );
+		}
+	}
+
+
+	public function testSaveOrderToolAddressKeepsPrice() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
+		$product = $manager->createProduct()->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
+		$order = $manager->save( $manager->create()->addProduct( $product ) );
+
+		try
+		{
+			( new \Aimeos\Admin\Mcp\Tool\Order\Save( $this->context ) )->execute( ['items' => [[
+				'id' => $order->getId(),
+				'address' => [['type' => 'delivery', 'firstname' => 'mcp']],
+			]]] );
+
+			$saved = $manager->get( $order->getId(), ['order/address'] );
+			$this->assertSame( '10.00', $saved->getPrice()->getValue() );
+			$this->assertSame( 'mcp', current( $saved->getAddress( 'delivery' ) )->getFirstname() );
+		}
+		finally
+		{
+			$manager->delete( $order->getId() );
+		}
+	}
+
+
 	public function testSaveMediaOfRestrictedDomainForbidden() : void
 	{
 		$this->assertMediaForbidden( 'service', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
@@ -454,6 +1054,25 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$manager = \Aimeos\MShop::create( $this->context, $domain );
 		$filter = $manager->filter()->add( $key, '==', $value );
 		$manager->delete( $manager->search( $filter )->keys() );
+	}
+
+
+	private function items() : \Aimeos\Admin\Mcp\Items
+	{
+		return new \Aimeos\Admin\Mcp\Items( $this->context, fn() => true );
+	}
+
+
+	private function order() : \Aimeos\MShop\Order\Item\Iface
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
+
+		$product = $manager->createProduct()->setId( '1' )->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
+		$service = $manager->createService()->setId( '2' )->setCode( 'unitpaymentcode' )->setType( 'payment' )
+			->setTransactions( [$manager->createServiceTransaction()->setType( 'payment' )->setStatus( 5 )] );
+
+		return $manager->create()->addProduct( $product )->addService( $service, 'payment' );
 	}
 
 

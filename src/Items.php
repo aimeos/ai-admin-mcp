@@ -10,6 +10,10 @@ use Nyholm\Psr7\UploadedFile;
 
 class Items
 {
+	/** Fields of ordered products which can be changed, same as in the admin backend */
+	public const ORDER_PRODUCT_FIELDS = ['statusdelivery', 'statuspayment', 'qtyopen', 'timeframe', 'notes'];
+
+
 	/**
 	 * @param \Closure(string, string):bool $allowed
 	 */
@@ -97,6 +101,10 @@ class Items
 	public function update( ManagerIface $manager, ItemIface $item, array $entry, string $domain ) : ItemIface
 	{
 		$data = $this->prefix( $domain, $entry );
+
+		if( $item instanceof \Aimeos\MShop\Media\Item\Iface ) {
+			$data = $this->mediaPaths( $item, $data );
+		}
 
 		// Check before and after the update so items can't be moved into or out of restricted domains
 		$this->permit( $item, 'save' );
@@ -225,11 +233,11 @@ class Items
 		}
 
 		return [
-			'address' => $this->collection( $item->getAddresses()->collapse(), 'order/address', $depth ),
+			'address' => $this->collection( $item->getAddresses()->flat( 1 ), 'order/address', $depth ),
 			'coupon' => $coupons,
 			'product' => $this->collection( $item->getProducts(), 'order/product', $depth ),
-			'service' => $this->collection( $item->getServices()->collapse(), 'order/service', $depth ),
-			'status' => $this->collection( $item->getStatuses()->collapse(), 'order/status', $depth ),
+			'service' => $this->collection( $item->getServices()->flat( 1 ), 'order/service', $depth ),
+			'status' => $this->collection( $item->getStatuses()->flat( 1 ), 'order/status', $depth ),
 		];
 	}
 
@@ -451,123 +459,358 @@ class Items
 
 
 	/**
+	 * Updates the parts of an order which can be changed in the admin backend too
+	 *
+	 * Ordered products and services are immutable except for their delivery/payment
+	 * states and the service attributes. Transactions are only added by the payment
+	 * providers and can't be changed at all. Unchanged values of read-only fields are
+	 * accepted so orders returned by the tools can be saved again.
+	 *
 	 * @param array<string, mixed> $entry
 	 */
 	private function updateOrder( \Aimeos\MShop\Order\Item\Iface $item, array $entry ) : ItemIface
 	{
-		if( isset( $entry['address'] ) )
-		{
-			$addresses = [];
-			$manager = \Aimeos\MShop::create( $this->context, 'order/address' );
+		if( isset( $entry['status'] ) ) {
+			$this->orderStatuses( $item, (array) $entry['status'] );
+		}
 
-			foreach( (array) $entry['address'] as $raw )
+		if( isset( $entry['coupon'] ) ) {
+			$this->orderCoupons( $item, (array) $entry['coupon'] );
+		}
+
+		if( isset( $entry['address'] ) ) {
+			$this->orderAddresses( $item, (array) $entry['address'] );
+		}
+
+		if( isset( $entry['product'] ) ) {
+			$this->orderProducts( $item, (array) $entry['product'] );
+		}
+
+		if( isset( $entry['service'] ) ) {
+			$this->orderServices( $item, (array) $entry['service'] );
+		}
+
+		return $item;
+	}
+
+
+	/**
+	 * Tests that the passed statuses are equal to the stored ones
+	 *
+	 * Statuses are matched by ID because new ones can be added in the meantime and
+	 * the order groups them by type and value, so their positions can change.
+	 *
+	 * @param array<int|string, mixed> $entries
+	 * @throws Exception If a status is unknown or has been changed
+	 */
+	private function orderStatuses( \Aimeos\MShop\Order\Item\Iface $item, array $entries ) : void
+	{
+		$statuses = $item->getStatuses()->flat( 1 );
+
+		foreach( $entries as $raw )
+		{
+			$raw = (array) $raw;
+			$status = $this->byId( $statuses, (string) ( $raw['id'] ?? '' ), 'Order status' );
+			$this->unchanged( $this->toArray( $status, 'order/status' ), array_diff_key( $raw, ['id' => 1] ), 'Order status' );
+		}
+	}
+
+
+	/**
+	 * Tests that the passed coupons are equal to the stored ones
+	 *
+	 * The coupons are read from the storage instead of the order because saving an
+	 * order with loaded coupons adds their product references again.
+	 *
+	 * @param array<int|string, mixed> $entries
+	 * @throws Exception If a coupon has been changed
+	 */
+	private function orderCoupons( \Aimeos\MShop\Order\Item\Iface $item, array $entries ) : void
+	{
+		$stored = [];
+		$manager = \Aimeos\MShop::create( $this->context, 'order/coupon' );
+		$filter = $manager->filter()->add( 'order.coupon.parentid', '==', $item->getId() )->slice( 0, 0x7fffffff );
+
+		foreach( $item->getId() ? $manager->search( $filter ) : [] as $coupon )
+		{
+			$stored[$coupon->getCode()] ??= [];
+			$coupon->getProductId() ? $stored[$coupon->getCode()][] = (string) $coupon->getProductId() : null;
+		}
+
+		foreach( $entries as $entry )
+		{
+			$code = (string) ( ( (array) $entry )['code'] ?? '' );
+			$ids = array_map( 'strval', (array) ( ( (array) $entry )['productIds'] ?? [] ) );
+
+			if( !isset( $stored[$code] ) || array_diff( $ids, $stored[$code] ) !== [] ) {
+				throw new Exception( 'Order field "coupon" can not be changed', 400 );
+			}
+		}
+	}
+
+
+	/**
+	 * Updates existing order addresses by ID and replaces or adds the ones without ID
+	 *
+	 * Addresses with ID are updated first and their positions are kept. Addresses without
+	 * ID replace the remaining existing addresses of the same type in order of their position
+	 * and are added if there are no more existing ones. The stored rows are reused because
+	 * the order manager doesn't delete removed addresses.
+	 *
+	 * @param array<int|string, mixed> $entries
+	 */
+	private function orderAddresses( \Aimeos\MShop\Order\Item\Iface $item, array $entries ) : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order/address' );
+		$used = $new = [];
+
+		foreach( $entries as $raw )
+		{
+			$data = $this->prefix( 'order/address', (array) $raw );
+			$id = (string) ( $data['order.address.id'] ?? '' );
+			unset( $data['order.address.id'] );
+
+			if( $id === '' ) {
+				$new[] = $data;
+				continue;
+			}
+
+			// addresses are grouped by type in the order, so the type of existing ones is read-only
+			[$type, $pos] = $this->orderAddressPos( $item, $id );
+			$this->unchanged( ['type' => $type], array_intersect_key( (array) $raw, ['type' => 1] ), 'Order address' );
+			unset( $data['order.address.type'] );
+
+			$item->getAddress( $type, $pos )->fromArray( $data );
+			$used[$type][] = $pos;
+		}
+
+		foreach( $new as $data )
+		{
+			// read the type first because fromArray() removes the consumed keys from $data
+			$type = (string) ( $data['order.address.type'] ?? \Aimeos\MShop\Order\Item\Address\Base::TYPE_PAYMENT );
+			$address = $manager->create()->fromArray( $data );
+			$positions = array_diff( array_keys( $item->getAddress( $type ) ), $used[$type] ?? [] );
+
+			if( ( $pos = reset( $positions ) ) !== false )
 			{
-				$data = $this->prefix( 'order/address', (array) $raw );
-				$type = (string) ( $data['order.address.type'] ?? 'billing' );
-				$addresses[$type][] = $manager->create()->fromArray( $data, true );
+				$old = $item->getAddress( $type, $pos );
+				$address->setId( $old->getId() )->setParentId( $old->getParentId() ); // @phpstan-ignore method.notFound
+				$item->addAddress( $address, $type, $pos ); // @phpstan-ignore argument.type
+				$used[$type][] = $pos;
 			}
-
-			$item->setAddresses( $addresses );
-		}
-
-		if( isset( $entry['product'] ) ) {
-			$item->setProducts( array_map( fn( $raw ) => $this->orderProduct( (array) $raw ), (array) $entry['product'] ) );
-		}
-
-		if( isset( $entry['service'] ) )
-		{
-			$item->setServices( [] );
-
-			foreach( (array) $entry['service'] as $raw ) {
-				$service = $this->orderService( (array) $raw );
-				$item->addService( $service, $service->getType() );
+			else
+			{
+				$item->addAddress( $address, $type ); // @phpstan-ignore argument.type
+				$used[$type][] = array_key_last( $item->getAddress( $type ) );
 			}
 		}
-
-		return $item;
 	}
 
 
 	/**
-	 * @param array<string, mixed> $entry
+	 * Returns the type and position of the order address with the given ID
+	 *
+	 * @return array{0: string, 1: int|string}
+	 * @throws Exception If no address with that ID is available
 	 */
-	private function orderProduct( array $entry ) : \Aimeos\MShop\Order\Item\Product\Iface
+	private function orderAddressPos( \Aimeos\MShop\Order\Item\Iface $item, string $id ) : array
 	{
-		$manager = \Aimeos\MShop::create( $this->context, 'order/product' );
-		$data = $this->prefix( 'order/product', $entry );
-		/** @var \Aimeos\MShop\Order\Item\Product\Iface $item */
-		$item = $manager->create()->fromArray( $data, true );
-
-		if( isset( $entry['attribute'] ) )
+		foreach( $item->getAddresses() as $type => $list )
 		{
-			$attrManager = \Aimeos\MShop::create( $this->context, 'order/product/attribute' );
-			$attributes = [];
-
-			foreach( (array) $entry['attribute'] as $raw ) {
-				$data = $this->prefix( 'order/product/attribute', (array) $raw );
-				$attribute = $attrManager->create()->fromArray( $data, true );
-
-				if( !$attribute instanceof \Aimeos\MShop\Order\Item\Product\Attribute\Iface ) {
-					throw new Exception( 'Invalid order product attribute manager', 500 );
+			foreach( $list as $pos => $address )
+			{
+				if( $address->getId() === $id ) {
+					return [(string) $type, $pos];
 				}
-
-				$attributes[] = $attribute;
 			}
-
-			$item->setAttributeItems( map( $attributes ) );
 		}
 
-		if( isset( $entry['product'] ) ) {
-			$item->setProducts( array_map( fn( $raw ) => $this->orderProduct( (array) $raw ), (array) $entry['product'] ) );
-		}
-
-		return $item;
+		throw new Exception( sprintf( 'Order address with ID "%1$s" not found', $id ), 400 );
 	}
 
 
 	/**
-	 * @param array<string, mixed> $entry
+	 * Updates the allowed fields of existing ordered products including the sub-products of bundles
+	 *
+	 * @param array<int|string, mixed> $entries
 	 */
-	private function orderService( array $entry ) : \Aimeos\MShop\Order\Item\Service\Iface
+	private function orderProducts( \Aimeos\MShop\Order\Item\Iface $item, array $entries ) : void
 	{
-		$manager = \Aimeos\MShop::create( $this->context, 'order/service' );
-		$data = $this->prefix( 'order/service', $entry );
-		/** @var \Aimeos\MShop\Order\Item\Service\Iface $item */
-		$item = $manager->create()->fromArray( $data, true );
+		$products = [];
 
-		if( isset( $entry['attribute'] ) )
+		foreach( $item->getProducts() as $product ) {
+			$products = array_merge( $products, [$product], $product->getProducts()->values()->all() );
+		}
+
+		$editable = array_flip( array_merge( self::ORDER_PRODUCT_FIELDS, ['id', 'product'] ) );
+
+		while( ( $raw = array_shift( $entries ) ) !== null )
 		{
-			$attrManager = \Aimeos\MShop::create( $this->context, 'order/service/attribute' );
-			$attributes = [];
+			$raw = (array) $raw;
+			$product = $this->byId( map( $products ), (string) ( $raw['id'] ?? '' ), 'Ordered product' );
+			$this->unchanged( $this->toArray( $product, 'order/product' ), array_diff_key( $raw, $editable ), 'Ordered product' );
 
-			foreach( (array) $entry['attribute'] as $raw ) {
-				$data = $this->prefix( 'order/service/attribute', (array) $raw );
-				$attribute = $attrManager->create()->fromArray( $data, true );
+			$data = $this->prefix( 'order/product', array_intersect_key( $raw, array_flip( self::ORDER_PRODUCT_FIELDS ) ) );
+			$product->fromArray( $data, true );
 
-				if( !$attribute instanceof \Aimeos\MShop\Order\Item\Service\Attribute\Iface ) {
-					throw new Exception( 'Invalid order service attribute manager', 500 );
+			// sub-products of bundles as returned by the tools
+			array_push( $entries, ...array_values( (array) ( $raw['product'] ?? [] ) ) );
+		}
+	}
+
+
+	/**
+	 * Updates or adds attributes of existing order services
+	 *
+	 * Attributes are merged and never removed because the service providers store
+	 * data like transaction references in them which is required for e.g. refunds.
+	 *
+	 * @param array<int|string, mixed> $entries
+	 */
+	private function orderServices( \Aimeos\MShop\Order\Item\Iface $item, array $entries ) : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order/service/attribute' );
+
+		foreach( $entries as $raw )
+		{
+			$raw = (array) $raw;
+			$service = $this->byId( $item->getServices()->flat( 1 ), (string) ( $raw['id'] ?? '' ), 'Order service' );
+			$this->unchanged( $this->toArray( $service, 'order/service' ), array_diff_key( $raw, ['id' => 1, 'attribute' => 1] ), 'Order service' );
+
+			foreach( (array) ( $raw['attribute'] ?? [] ) as $attr )
+			{
+				$data = $this->prefix( 'order/service/attribute', (array) $attr );
+				$id = (string) ( $data['order.service.attribute.id'] ?? '' );
+				unset( $data['order.service.attribute.id'] );
+
+				if( $id !== '' )
+				{
+					// type and code are read-only because the service looks up its attributes by them
+					$attrItem = $this->byId( $service->getAttributeItems(), $id, 'Order service attribute' ); // @phpstan-ignore method.notFound
+					$current = ['type' => $attrItem->getType(), 'code' => $attrItem->getCode()]; // @phpstan-ignore method.notFound, method.notFound
+					$this->unchanged( $current, array_intersect_key( (array) $attr, $current ), 'Order service attribute' );
+
+					unset( $data['order.service.attribute.type'], $data['order.service.attribute.code'] );
+					$attrItem->fromArray( $data );
+					continue;
 				}
 
-				$attributes[] = $attribute;
-			}
+				$values = $data; // fromArray() removes the consumed keys
+				$new = $manager->create()->setType( $service->getType() )->fromArray( $values ); // @phpstan-ignore method.notFound, method.notFound
+				$found = $service->getAttributeItems()->find( fn( $a ) => $a->getType() === $new->getType() && $a->getCode() === $new->getCode() ); // @phpstan-ignore method.notFound
 
-			$item->setAttributeItems( map( $attributes ) );
+				// update the existing attribute with the same type and code, also if it has an attribute ID
+				if( $found ) {
+					$found->fromArray( $data );
+				} else {
+					$service->setAttributeItem( $new ); // @phpstan-ignore method.notFound
+				}
+			}
+		}
+	}
+
+
+	/**
+	 * Allows only remote URLs for media files and previews
+	 *
+	 * Local paths and file systems are only set by uploads because the media manager
+	 * deletes the referenced files when they are replaced. Unchanged values are ignored
+	 * so items returned by the tools can be saved again and empty values clear them.
+	 *
+	 * @param array<string, mixed> $data
+	 * @return array<string, mixed>
+	 * @throws Exception If a local path or another file system is passed
+	 */
+	private function mediaPaths( \Aimeos\MShop\Media\Item\Iface $item, array $data ) : array
+	{
+		$remote = fn( $url ) => is_string( $url ) && preg_match( '#^https?://#i', $url ) === 1;
+		// local previews are returned with the modification time as version which changes on every save
+		$version = fn( $url ) => is_string( $url ) && !$remote( $url ) ? preg_replace( '#\?v=\d+$#', '', $url ) : $url;
+		$current = [
+			'media.url' => $item->getUrl(),
+			'media.preview' => $version( $item->getPreview() ),
+			'media.previews' => $item->getPreviews(),
+			'media.filesystem' => $item->getFileSystem(),
+		];
+
+		if( array_key_exists( 'media.preview', $data ) ) {
+			$data['media.preview'] = $version( $data['media.preview'] );
 		}
 
-		if( isset( $entry['transaction'] ) )
+		foreach( $current as $key => $value )
 		{
-			$transactionManager = \Aimeos\MShop::create( $this->context, 'order/service/transaction' );
-			$transactions = [];
-
-			foreach( (array) $entry['transaction'] as $raw ) {
-				$data = $this->prefix( 'order/service/transaction', (array) $raw );
-				$transactions[] = $transactionManager->create()->fromArray( $data, true );
+			if( !array_key_exists( $key, $data ) || $data[$key] == $value ) {
+				unset( $data[$key] );
+				continue;
 			}
 
-			$item->setTransactions( $transactions );
+			$urls = $key === 'media.previews' && is_array( $data[$key] ) ? $data[$key] : [$data[$key]];
+
+			// empty values remove the files from the item
+			if( $key === 'media.filesystem' || array_filter( $urls, fn( $url ) => $url !== '' && $url !== null && !$remote( $url ) ) ) {
+				throw new Exception( sprintf( 'Only absolute http(s) URLs are allowed for "%1$s", upload local files instead', substr( $key, 6 ) ), 400 );
+			}
 		}
 
-		return $item;
+		return $data;
+	}
+
+
+	/**
+	 * Tests that the passed values of read-only fields are equal to the current ones
+	 *
+	 * The values may be a subset of the current ones, e.g. if the item has been
+	 * returned with a lower nesting depth.
+	 *
+	 * @param array<string, mixed> $current Current values as returned by toArray()
+	 * @param array<string, mixed> $values Passed values of the read-only fields
+	 * @throws Exception If a read-only value has been changed
+	 */
+	private function unchanged( array $current, array $values, string $label ) : void
+	{
+		// set by the managers on save without updating the items, so returned items can be outdated
+		$ignore = ['ctime' => 1, 'mtime' => 1, 'editor' => 1];
+
+		$same = function( $cur, $value ) use ( &$same, $ignore ) : bool {
+			if( !is_array( $value ) ) {
+				return !is_array( $cur ) && $value == $cur;
+			}
+
+			foreach( array_diff_key( $value, $ignore ) as $key => $val )
+			{
+				if( !is_array( $cur ) || !$same( $cur[$key] ?? null, $val ) ) {
+					return false;
+				}
+			}
+
+			return true;
+		};
+
+		foreach( array_diff_key( $values, $ignore ) as $key => $value )
+		{
+			if( !$same( $current[$key] ?? null, $value ) ) {
+				throw new Exception( sprintf( '%1$s field "%2$s" can not be changed', $label, $key ), 400 );
+			}
+		}
+	}
+
+
+	/**
+	 * Returns the item with the given ID from the list
+	 *
+	 * @param \Aimeos\Map<int|string, ItemIface> $items
+	 * @throws Exception If no item with that ID is available
+	 */
+	private function byId( \Aimeos\Map $items, string $id, string $label ) : ItemIface
+	{
+		foreach( $items as $item )
+		{
+			if( $id !== '' && $item->getId() === $id ) {
+				return $item;
+			}
+		}
+
+		throw new Exception( sprintf( '%1$s with ID "%2$s" not found', $label, $id ), 400 );
 	}
 
 
