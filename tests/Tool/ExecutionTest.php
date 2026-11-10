@@ -151,8 +151,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
 		$this->context->setUser( $manager->find( 'test2@example.com' ) );
 
-		$items = new \Aimeos\Admin\Mcp\Items( $this->context );
-		$item = $items->update( $manager, $manager->find( 'test@example.com' ), ['email' => 'mcp@example.test', 'firstname' => 'mcp'], 'customer' );
+		$item = $this->items()->update( $manager, $manager->find( 'test@example.com' ), ['email' => 'mcp@example.test', 'firstname' => 'mcp'], 'customer' );
 
 		$this->assertSame( 'test@example.com', $item->getPaymentAddress()->getEmail() );
 		$this->assertSame( 'mcp', $item->getPaymentAddress()->getFirstname() );
@@ -166,8 +165,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
 		$this->context->setUser( $user = $manager->find( 'test@example.com' ) );
 
-		$items = new \Aimeos\Admin\Mcp\Items( $this->context );
-		$item = $items->update( $manager, $user, ['email' => 'mcp@example.test'], 'customer' );
+		$item = $this->items()->update( $manager, $user, ['email' => 'mcp@example.test'], 'customer' );
 
 		$this->assertSame( 'mcp@example.test', $item->getPaymentAddress()->getEmail() );
 	}
