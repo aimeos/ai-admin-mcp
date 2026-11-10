@@ -33,11 +33,7 @@ abstract class Delete extends Base
 		$filter = $manager->filter()->add( $prefix . '.id', '==', $ids )->slice( 0, count( $ids ) );
 		$items = $manager->search( $filter );
 
-		foreach( $items as $item ) {
-			$this->items()->permit( $item, 'delete' );
-		}
-
-		// Only the checked items are deleted
+		// Only existing items are deleted, the managers check the owning domains of shared items
 		$ids = array_values( array_intersect( $ids, $items->keys()->map( fn( $id ) => (string) $id )->toArray() ) );
 		$manager->delete( $ids );
 

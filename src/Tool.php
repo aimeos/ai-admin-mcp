@@ -55,7 +55,12 @@ abstract class Tool
 
 		$this->authorize();
 
-		return $this->run( $arguments );
+		try {
+			return $this->run( $arguments );
+		} catch( \Aimeos\MShop\PolicyException $e ) {
+			// e.g. shared items of domains the user isn't allowed to change
+			throw Tools::forbidden( $e->getMessage(), $e );
+		}
 	}
 
 
@@ -74,22 +79,15 @@ abstract class Tool
 	}
 
 
-	protected function allowed( ?string $domain = null, ?string $permission = null ) : bool
+	/**
+	 * Throws an exception if the user isn't allowed to use the domain, by default the one of the tool
+	 *
+	 * Uses the policy of the context like the items, host applications change the
+	 * permissions by setting their own policy in the context.
+	 */
+	final protected function authorize( ?string $domain = null, ?string $permission = null ) : void
 	{
-		$groups = (array) $this->context->config()->get(
-			'admin/mcp/resource/' . ( $domain ?? $this->domain() ) . '/' . ( $permission ?? $this->permission() ),
-			[]
-		);
-
-		return $this->context->view()->access( $groups ) === true;
-	}
-
-
-	protected function authorize( ?string $domain = null, ?string $permission = null ) : void
-	{
-		if( !$this->allowed( $domain, $permission ) ) {
-			throw new Exception( 'Forbidden', 403 );
-		}
+		Tools::check( $this->context, $domain ?? $this->domain(), $permission ?? $this->permission() );
 	}
 
 
@@ -115,7 +113,7 @@ abstract class Tool
 
 	final protected function items() : Items
 	{
-		return $this->items ??= new Items( $this->context, $this->allowed( ... ) );
+		return $this->items ??= new Items( $this->context );
 	}
 
 

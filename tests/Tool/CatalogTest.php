@@ -21,6 +21,31 @@ class CatalogTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testCreatePolicyDefault() : void
+	{
+		$context = \TestHelper::context()->setPolicy( null );
+		$tool = Tools::create( $context )['product-search'];
+
+		// the shared context must not be changed, only the copy used by the tools
+		$copy = ( new \ReflectionProperty( Tool::class, 'context' ) )->getValue( $tool );
+		$this->assertInstanceOf( \Aimeos\MShop\Policy\Actions::class, $copy->policy() );
+		$this->assertNull( $context->policy() );
+	}
+
+
+	public function testCreatePolicyCustom() : void
+	{
+		$context = \TestHelper::context()->setPolicy( new class implements \Aimeos\MShop\PolicyIface {
+			public function allowed( \Aimeos\MShop\ContextIface $context, string $resource, string $action ) : ?bool {
+				return false;
+			}
+		} );
+		$tool = Tools::create( $context )['product-search'];
+
+		$this->assertSame( $context->policy(), ( new \ReflectionProperty( Tool::class, 'context' ) )->getValue( $tool )->policy() );
+	}
+
+
 	public function testCreate() : void
 	{
 		$tools = Tools::create( \TestHelper::context() );

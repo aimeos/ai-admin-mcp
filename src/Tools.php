@@ -5,6 +5,8 @@ namespace Aimeos\Admin\Mcp;
 
 final class Tools
 {
+	use \Aimeos\MShop\PolicyTrait;
+
 	/** @var array<string, array<int, string>> */
 	private const ACTIONS = [
 		'ai' => ['Write', 'Translate', 'Imagine', 'Isolate'],
@@ -63,6 +65,8 @@ final class Tools
 	 */
 	public static function create( \Aimeos\MShop\ContextIface $context ) : array
 	{
+		$context = self::withPolicy( $context );
+
 		/** admin/mcp/tools
 		 * List of tool classes offered to the MCP clients
 		 *
@@ -109,5 +113,45 @@ final class Tools
 		}
 
 		return $result;
+	}
+
+
+	/**
+	 * Returns the default authorization policy of the MCP interface
+	 *
+	 * The interface uses it if the passed context contains no policy, so it also protects
+	 * shared items like prices of domains the user isn't allowed to access. Host applications
+	 * can use their own policy by setting it in the context with $context->setPolicy().
+	 *
+	 * @return \Aimeos\MShop\PolicyIface Authorization policy
+	 */
+	public static function policy() : \Aimeos\MShop\PolicyIface
+	{
+		return new \Aimeos\MShop\Policy\Actions( self::prefix() );
+	}
+
+
+	/**
+	 * Creates the exception of the interface
+	 *
+	 * @param string $msg Translated error message
+	 * @param int $code Error code, e.g. 403 for actions which aren't allowed
+	 * @param \Throwable|null $previous Previous exception
+	 * @return \Exception Exception with the passed code
+	 */
+	protected static function exception( string $msg, int $code, ?\Throwable $previous = null ) : \Exception
+	{
+		return new Exception( $msg, $code, [], $previous );
+	}
+
+
+	/**
+	 * Returns the configuration key prefix of the resources protected by the interface
+	 *
+	 * @return string Configuration key prefix
+	 */
+	protected static function prefix() : string
+	{
+		return 'admin/mcp/resource';
 	}
 }

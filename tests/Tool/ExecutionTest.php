@@ -16,7 +16,10 @@ use Aimeos\Admin\Mcp\Tool\Product\Search;
 
 class ExecutionTest extends \PHPUnit\Framework\TestCase
 {
+	private const MEDIA_SAVE_DENIED = 'Permission "save" for "service" is required to change "media" items';
+
 	private \Aimeos\MShop\ContextIface $context;
+	private ?string $mediaLabel = null;
 
 
 	protected function setUp() : void
@@ -135,7 +138,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 			->validate( ['items' => [['code' => 'test-mcp', 'password' => 'secret']]] );
 
 		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
-		$items = new \Aimeos\Admin\Mcp\Items( $this->context, fn() => true );
+		$items = new \Aimeos\Admin\Mcp\Items( $this->context );
 		$item = $items->update( $manager, $manager->create(), ['code' => 'test-mcp', 'password' => 'secret'], 'customer' );
 
 		$this->assertNotEmpty( $errors );
@@ -746,85 +749,77 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 	public function testSaveMediaOfRestrictedDomainForbidden() : void
 	{
-		$this->assertMediaForbidden( 'service', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
-			->execute( ['items' => [['id' => $id, 'label' => 'Changed by editor']]] ) );
+		$this->assertMediaDenied( 'service', Exception::class, 403, self::MEDIA_SAVE_DENIED,
+			fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
+				->execute( ['items' => [['id' => $id, 'label' => 'Changed by editor']]] ) );
 	}
 
 
 	public function testSaveMediaIntoRestrictedDomainForbidden() : void
 	{
-		$this->assertMediaForbidden( 'product', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
-			->execute( ['items' => [['id' => $id, 'domain' => 'service', 'label' => 'Changed by editor']]] ) );
+		$this->assertMediaDenied( 'product', Exception::class, 403, self::MEDIA_SAVE_DENIED,
+			fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
+				->execute( ['items' => [['id' => $id, 'domain' => 'service', 'label' => 'Changed by editor']]] ) );
 	}
 
 
 	public function testDeleteMediaOfRestrictedDomainForbidden() : void
 	{
-		$this->assertMediaForbidden( 'plugin', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Delete( $this->context ) )
-			->execute( ['ids' => [$id]] ) );
+		$msg = 'Permission "save" for "plugin" is required to change "media" items';
+		$this->assertMediaDenied( 'plugin', Exception::class, 403, $msg,
+			fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Delete( $this->context ) )->execute( ['ids' => [$id]] ) );
 	}
 
 
-	public function testGetMediaOfRestrictedDomainForbidden() : void
+	public function testSaveMediaOfAllowedDomain() : void
 	{
-		$this->assertMediaForbidden( 'service', fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Get( $this->context ) )
-			->execute( ['id' => $id] ) );
+		$this->withMedia( ['product'], function( $id ) {
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
+				->execute( ['items' => [['id' => $id, 'label' => 'Changed by editor']]] );
+
+			$this->assertSame( 'Changed by editor', $result['items'][0]['label'] );
+		} );
+	}
+
+
+	public function testDeleteMediaOfAllowedDomain() : void
+	{
+		$this->withMedia( ['product'], function( $id ) {
+			// missing items are skipped
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Delete( $this->context ) )
+				->execute( ['ids' => [$id, '2147483647']] );
+
+			$this->assertSame( [$id], $result['ids'] );
+		} );
+	}
+
+
+	public function testGetMediaOfRestrictedDomainNotFound() : void
+	{
+		// items the user isn't allowed to retrieve are reported like missing items
+		$msg = 'Item with ID "%s" in "media.id" not found';
+		$this->assertMediaDenied( 'service', \Aimeos\MShop\Exception::class, 404, $msg,
+			fn( $id ) => ( new \Aimeos\Admin\Mcp\Tool\Media\Get( $this->context ) )->execute( ['id' => $id] ) );
 	}
 
 
 	public function testSearchMediaOfRestrictedDomainExcluded() : void
 	{
-		$manager = \Aimeos\MShop::create( $this->context, 'media' );
-		$label = 'MCP test media ' . bin2hex( random_bytes( 4 ) );
-		$ids = [];
+		$this->withMedia( ['product', 'service'], function( $productId, $serviceId ) {
+			$args = ['filter' => ['==' => ['media.label' => $this->mediaLabel()]]];
+			$ids = fn( array $result ) => array_map( 'strval', array_column( $result['items'], 'id' ) );
 
-		try
-		{
-			foreach( ['product', 'service'] as $domain ) {
-				$ids[$domain] = (string) $manager->save( $manager->create()->setDomain( $domain )->setType( 'default' )
-					->setLabel( $label )->setUrl( 'test.jpg' ) )->getId();
-			}
-
-			$args = ['filter' => ['==' => ['media.label' => $label]]];
-
-			$this->setAccess( ['editor'] );
 			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Search( $this->context ) )->execute( $args );
 
 			$this->assertSame( 1, $result['total'] );
-			$this->assertSame( $ids['product'], (string) $result['items'][0]['id'] );
+			$this->assertSame( [$productId], $ids( $result ) );
 
 			$this->setAccess( ['admin'] );
-			$this->assertSame( 2, ( new \Aimeos\Admin\Mcp\Tool\Media\Search( $this->context ) )->execute( $args )['total'] );
-		}
-		finally
-		{
-			$manager->delete( array_values( $ids ) );
-		}
-	}
+			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Search( $this->context ) )->execute( $args );
 
-
-	public function testSaveAndDeleteMediaOfAllowedDomain() : void
-	{
-		$manager = \Aimeos\MShop::create( $this->context, 'media' );
-		$id = $manager->save( $manager->create()->setDomain( 'product' )->setType( 'default' )
-			->setLabel( 'MCP test media' )->setUrl( 'test.jpg' ) )->getId();
-
-		try
-		{
-			$this->setAccess( ['editor'] );
-
-			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Save( $this->context ) )
-				->execute( ['items' => [['id' => $id, 'label' => 'Changed by editor']]] );
-			$this->assertSame( 'Changed by editor', $result['items'][0]['label'] );
-
-			$result = ( new \Aimeos\Admin\Mcp\Tool\Media\Delete( $this->context ) )
-				->execute( ['ids' => [(string) $id, '2147483647']] );
-			$this->assertSame( [(string) $id], $result['ids'] );
-		}
-		finally
-		{
-			$manager->delete( $id );
-		}
+			$this->assertSame( 2, $result['total'] );
+			$this->assertEqualsCanonicalizing( [$productId, $serviceId], $ids( $result ) );
+		} );
 	}
 
 
@@ -1022,30 +1017,80 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
-	private function assertMediaForbidden( string $domain, \Closure $call ) : void
+	/**
+	 * Asserts that the editor can't access the media item of the domain and that it's unchanged
+	 *
+	 * @param string $domain Domain owning the media item
+	 * @param class-string<\Exception> $class Expected exception class
+	 * @param int $code Expected error code
+	 * @param string $message Expected error message, "%s" is replaced by the item ID
+	 * @param \Closure $call Function executing the tool with the item ID
+	 */
+	private function assertMediaDenied( string $domain, string $class, int $code, string $message, \Closure $call ) : void
+	{
+		$this->withMedia( [$domain], function( $id ) use ( $domain, $class, $code, $message, $call ) {
+			try
+			{
+				$call( $id );
+			}
+			catch( \Exception $e )
+			{
+				// exact class because the policy exceptions of the managers extend \Aimeos\MShop\Exception too
+				$this->assertSame( $class, get_class( $e ) );
+				$this->assertSame( $code, $e->getCode() );
+				$this->assertSame( sprintf( $message, $id ), $e->getMessage() );
+
+				$item = \Aimeos\MShop::create( $this->context, 'media' )->get( $id );
+				$this->assertSame( $domain, $item->getDomain() );
+				$this->assertSame( $this->mediaLabel(), $item->getLabel() );
+				return;
+			}
+
+			// outside of the try block because the failure is an exception too
+			$this->fail( sprintf( 'Expected %s with code %d', $class, $code ) );
+		} );
+	}
+
+
+	/**
+	 * Executes the function as editor with the IDs of new media items of the domains
+	 *
+	 * @param string[] $domains Domains owning the media items, one item per domain
+	 * @param \Closure $call Function executing the tools with the item IDs in the order of the domains
+	 */
+	private function withMedia( array $domains, \Closure $call ) : void
 	{
 		$manager = \Aimeos\MShop::create( $this->context, 'media' );
-		$id = $manager->save( $manager->create()->setDomain( $domain )->setType( 'default' )
-			->setLabel( 'MCP test media' )->setUrl( 'test.jpg' ) )->getId();
+		$ids = [];
 
 		try
 		{
-			$this->setAccess( ['editor'] );
-			$call( (string) $id );
-			$this->fail( 'Expected 403 exception' );
-		}
-		catch( Exception $e )
-		{
-			$this->assertSame( 403, $e->getCode() );
+			foreach( $domains as $domain ) {
+				$ids[] = (string) $manager->save( $manager->create()->setDomain( $domain )->setType( 'default' )
+					->setLabel( $this->mediaLabel() )->setUrl( 'test.jpg' ) )->getId();
+			}
 
-			$item = $manager->get( $id );
-			$this->assertSame( $domain, $item->getDomain() );
-			$this->assertSame( 'MCP test media', $item->getLabel() );
+			$this->setAccess( ['editor'] );
+			$call( ...$ids );
 		}
 		finally
 		{
-			$manager->delete( $id );
+			$this->setAccess( ['admin'] );
+			$manager->delete( $ids );
 		}
+	}
+
+
+	/**
+	 * Returns the label of the media items created by the test
+	 *
+	 * The label is unique so items left over by aborted test runs aren't found.
+	 *
+	 * @return string Media label
+	 */
+	private function mediaLabel() : string
+	{
+		return $this->mediaLabel ??= 'MCP test media ' . bin2hex( random_bytes( 4 ) );
 	}
 
 
@@ -1059,7 +1104,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 	private function items() : \Aimeos\Admin\Mcp\Items
 	{
-		return new \Aimeos\Admin\Mcp\Items( $this->context, fn() => true );
+		return new \Aimeos\Admin\Mcp\Items( $this->context );
 	}
 
 

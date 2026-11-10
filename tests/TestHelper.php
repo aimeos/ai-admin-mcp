@@ -54,6 +54,8 @@ class TestHelper
 	private static function createContext( string $site ) : \Aimeos\MShop\ContextIface
 	{
 		$context = new \Aimeos\MShop\Context();
+		// tests create most clients directly, so the policy is not set by the interface
+		$context->setPolicy( \Aimeos\Admin\Mcp\Tools::policy() );
 		$paths = self::aimeos()->getConfigPaths();
 		$config = new \Aimeos\Base\Config\Decorator\Memory( new \Aimeos\Base\Config\PHPArray( [], $paths ) );
 		$config = new \Aimeos\Base\Config\Decorator\Documentor( $config, __DIR__ . DIRECTORY_SEPARATOR . 'confdoc.ser' );

@@ -15,9 +15,9 @@ class Items
 
 
 	/**
-	 * @param \Closure(string, string):bool $allowed
+	 * @param \Aimeos\MShop\ContextIface $context Context object with the authorization policy
 	 */
-	public function __construct( private \Aimeos\MShop\ContextIface $context, private \Closure $allowed )
+	public function __construct( private \Aimeos\MShop\ContextIface $context )
 	{
 	}
 
@@ -52,7 +52,7 @@ class Items
 			$result['property'] = $this->collection( $item->getPropertyItems( null, false ), $domain . '/property', $depth + 1 );
 		}
 
-		if( $item instanceof \Aimeos\MShop\Product\Item\Iface && ( $this->allowed )( 'stock', 'get' ) ) {
+		if( $item instanceof \Aimeos\MShop\Product\Item\Iface && Tools::allowed( $this->context, 'stock', 'get' ) ) {
 			$result['stock'] = $this->collection( $item->getStockItems(), 'stock', $depth + 1 );
 		}
 
@@ -76,24 +76,6 @@ class Items
 
 
 	/**
-	 * Checks if the user has the permission for the domain owning the item.
-	 *
-	 * Items shared between domains (e.g. prices, texts and media) are owned by the
-	 * domain stored in their "<type>.domain" field. Managing them requires the same
-	 * permission as managing the owning domain, so they can't be changed via their
-	 * own tools if the user isn't allowed to manage the owning domain.
-	 */
-	public function permit( ItemIface $item, string $permission ) : void
-	{
-		$domain = (string) $item->get( str_replace( '/', '.', $item->getResourceType() ) . '.domain' );
-
-		if( $domain !== '' ) {
-			$this->authorize( $domain, $permission );
-		}
-	}
-
-
-	/**
 	 * Updates an item from unprefixed tool input.
 	 *
 	 * @param array<string, mixed> $entry
@@ -106,9 +88,6 @@ class Items
 			$data = $this->mediaPaths( $item, $data );
 		}
 
-		// Check before and after the update so items can't be moved into or out of restricted domains
-		$this->permit( $item, 'save' );
-
 		if( $item instanceof \Aimeos\MShop\Locale\Item\Site\Iface ) {
 			$item = $this->updateSite( $item, $data );
 		} elseif( $item instanceof \Aimeos\MShop\Customer\Item\Iface ) {
@@ -116,8 +95,6 @@ class Items
 		} else {
 			$item = $item->fromArray( $data, true );
 		}
-
-		$this->permit( $item, 'save' );
 
 		if( isset( $entry['address'] ) && $item instanceof \Aimeos\MShop\Common\Item\AddressRef\Iface ) {
 			$item = $this->updateAddresses( $manager, $item, (array) $entry['address'], $domain . '/address' );
@@ -144,17 +121,6 @@ class Items
 		}
 
 		return $item;
-	}
-
-
-	/**
-	 * Throws an exception if the user lacks the permission for the domain
-	 */
-	private function authorize( string $domain, string $permission ) : void
-	{
-		if( !( $this->allowed )( $domain, $permission ) ) {
-			throw new Exception( 'Forbidden', 403 );
-		}
 	}
 
 
@@ -188,7 +154,7 @@ class Items
 			// List and referenced items can contain sensitive data of the referenced domain
 			// (e.g. payment tokens in customer/service list configs or provider credentials
 			// in service configs), so they are only returned if the user can view that domain
-			if( !( $this->allowed )( (string) $domain, 'get' ) ) {
+			if( !Tools::allowed( $this->context, (string) $domain, 'get' ) ) {
 				continue;
 			}
 
@@ -328,7 +294,7 @@ class Items
 				->unique();
 
 			foreach( $permissions as $permission ) {
-				$this->authorize( (string) $domain, $permission );
+				Tools::check( $this->context, (string) $domain, $permission );
 			}
 
 			$domainManager = null;
@@ -370,7 +336,7 @@ class Items
 			}
 
 			if( !$listItems->isEmpty() ) {
-				$this->authorize( (string) $domain, 'delete' );
+				Tools::check( $this->context, (string) $domain, 'delete' );
 			}
 
 			$item->deleteListItems( $listItems );
