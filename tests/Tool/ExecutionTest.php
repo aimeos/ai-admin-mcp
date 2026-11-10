@@ -496,7 +496,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$couponManager = \Aimeos\MShop::create( $this->context, 'order/coupon' );
 		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
 		$product = $manager->createProduct()->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
-		$order = $manager->save( $manager->create()->addProduct( $product ) );
+		$order = $manager->save( $manager->create()->off()->addProduct( $product ) );
 
 		try
 		{
@@ -605,7 +605,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
 		$product = $manager->createProduct()->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
 		$status = $manager->createStatus()->setType( 'status-payment' )->setValue( '5' );
-		$order = $manager->save( $manager->create()->addProduct( $product )->addStatus( $status ) );
+		$order = $manager->save( $manager->create()->off()->addProduct( $product )->addStatus( $status ) );
 
 		try
 		{
@@ -724,7 +724,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$manager = \Aimeos\MShop::create( $this->context, 'order' );
 		$price = \Aimeos\MShop::create( $this->context, 'price' )->create()->setValue( '10.00' );
 		$product = $manager->createProduct()->setProductCode( 'CNC' )->setQuantity( 1 )->setPrice( $price );
-		$order = $manager->save( $manager->create()->addProduct( $product ) );
+		$order = $manager->save( $manager->create()->off()->addProduct( $product ) );
 
 		try
 		{
@@ -1072,7 +1072,8 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$service = $manager->createService()->setId( '2' )->setCode( 'unitpaymentcode' )->setType( 'payment' )
 			->setTransactions( [$manager->createServiceTransaction()->setType( 'payment' )->setStatus( 5 )] );
 
-		return $manager->create()->addProduct( $product )->addService( $service, 'payment' );
+		// the order plugins would check the products, e.g. their stock levels
+		return $manager->create()->off()->addProduct( $product )->addService( $service, 'payment' );
 	}
 
 
