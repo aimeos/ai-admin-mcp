@@ -255,6 +255,13 @@ class Items
 			throw new Exception( 'Forbidden', 403 );
 		}
 
+		$own = $view->access( ['super', 'admin'] ) || $item->getId() === $this->context->user()?->getId();
+
+		// The e-mail address of existing accounts is used for password resets
+		if( !$own && $item->getId() !== null ) {
+			unset( $data['customer.email'] );
+		}
+
 		$item = $item->fromArray( $data );
 
 		if( isset( $entry['groups'] ) && $view->access( ['super', 'admin'] ) ) {
@@ -262,7 +269,7 @@ class Items
 		}
 
 		// Passwords can't be set via MCP
-		if( isset( $entry['code'] ) && ( $view->access( ['super', 'admin'] ) || $item->getId() === $this->context->user()?->getId() ) ) {
+		if( isset( $entry['code'] ) && $own ) {
 			$item->setCode( (string) $entry['code'] );
 		}
 

@@ -144,6 +144,35 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSaveCustomerEmailOtherAccountIgnored() : void
+	{
+		$this->setAccess( ['editor'] );
+
+		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
+		$this->context->setUser( $manager->find( 'test2@example.com' ) );
+
+		$items = new \Aimeos\Admin\Mcp\Items( $this->context );
+		$item = $items->update( $manager, $manager->find( 'test@example.com' ), ['email' => 'mcp@example.test', 'firstname' => 'mcp'], 'customer' );
+
+		$this->assertSame( 'test@example.com', $item->getPaymentAddress()->getEmail() );
+		$this->assertSame( 'mcp', $item->getPaymentAddress()->getFirstname() );
+	}
+
+
+	public function testSaveCustomerEmailOwnAccount() : void
+	{
+		$this->setAccess( ['editor'] );
+
+		$manager = \Aimeos\MShop::create( $this->context, 'customer' );
+		$this->context->setUser( $user = $manager->find( 'test@example.com' ) );
+
+		$items = new \Aimeos\Admin\Mcp\Items( $this->context );
+		$item = $items->update( $manager, $user, ['email' => 'mcp@example.test'], 'customer' );
+
+		$this->assertSame( 'mcp@example.test', $item->getPaymentAddress()->getEmail() );
+	}
+
+
 	public function testSaveMediaRemoteUrls() : void
 	{
 		$manager = \Aimeos\MShop::create( $this->context, 'media' );
