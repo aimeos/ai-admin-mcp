@@ -129,7 +129,9 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 	public function testSaveCustomerPasswordRejected() : void
 	{
-		$this->setAccess( ['super'] );
+		$view = new \Aimeos\Base\View\Standard();
+		$view->addHelper( 'access', new \Aimeos\Base\View\Helper\Access\All( $view ) );
+		$this->context->setView( $view );
 
 		$errors = ( new \Aimeos\Admin\Mcp\Tool\Customer\Save( $this->context ) )->schema()
 			->validate( ['items' => [['code' => 'test-mcp', 'password' => 'secret']]] );
