@@ -52,7 +52,7 @@ abstract class SearchTree extends Base
 		$items = $this->parents( $items->values(), $include );
 		$result = [];
 
-		foreach( $this->filterItems( $items ) as $item ) {
+		foreach( $items as $item ) {
 			$result[] = $this->items()->toArray( $item, $this->resultDomain() );
 		}
 
@@ -82,7 +82,12 @@ abstract class SearchTree extends Base
 			->order( ['-' . $prefix . '.level', 'sort:' . $prefix . ':position'] )
 			->slice( 0, 0x7fffffff );
 		$this->addAccessFilter( $filter );
-		$parents = $manager->search( $filter, $include );
+
+		// parents the user isn't allowed to retrieve are skipped, e.g. sites outside the user's site tree
+		if( ( $parents = $manager->search( $filter, $include ) )->isEmpty() ) {
+			return $items;
+		}
+
 		$indexes = $parentIds->unique()->flip();
 		$itemKeys = map();
 

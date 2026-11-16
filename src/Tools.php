@@ -20,7 +20,7 @@ final class Tools
 		'locale' => ['Get', 'Search', 'Save', 'Delete'],
 		'locale/language' => ['Get', 'Search', 'Save', 'Delete'],
 		'locale/currency' => ['Get', 'Search', 'Save', 'Delete'],
-		'locale/site' => ['Get', 'Find', 'Search', 'Tree', 'Path', 'SearchTree', 'Save', 'Delete', 'Insert', 'Move'],
+		'locale/site' => ['Get', 'Find', 'Search', 'Tree', 'Path', 'SearchTree', 'Save', 'Delete', 'Insert'],
 		'media' => ['Get', 'Search', 'Save', 'Delete'],
 		'order' => ['Get', 'Search', 'Aggregate', 'Save'],
 		'plugin' => ['Get', 'Search', 'Config', 'Save', 'Delete'],

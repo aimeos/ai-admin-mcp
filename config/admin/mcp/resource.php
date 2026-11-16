@@ -487,7 +487,6 @@ return [
 			 * @see admin/mcp/resource/locale/site/save
 			 * @see admin/mcp/resource/locale/site/delete
 			 * @see admin/mcp/resource/locale/site/insert
-			 * @see admin/mcp/resource/locale/site/move
 			 * @see admin/mcp/tools
 			 */
 			'get' => $admin,
@@ -503,7 +502,6 @@ return [
 			 * @see admin/mcp/resource/locale/site/get
 			 * @see admin/mcp/resource/locale/site/delete
 			 * @see admin/mcp/resource/locale/site/insert
-			 * @see admin/mcp/resource/locale/site/move
 			 * @see admin/mcp/tools
 			 */
 			'save' => $admin,
@@ -519,7 +517,6 @@ return [
 			 * @see admin/mcp/resource/locale/site/get
 			 * @see admin/mcp/resource/locale/site/save
 			 * @see admin/mcp/resource/locale/site/insert
-			 * @see admin/mcp/resource/locale/site/move
 			 * @see admin/mcp/tools
 			 */
 			'delete' => $super,
@@ -535,26 +532,9 @@ return [
 			 * @see admin/mcp/resource/locale/site/get
 			 * @see admin/mcp/resource/locale/site/save
 			 * @see admin/mcp/resource/locale/site/delete
-			 * @see admin/mcp/resource/locale/site/move
 			 * @see admin/mcp/tools
 			 */
 			'insert' => $super,
-
-			/** admin/mcp/resource/locale/site/move
-			 * List of user groups that are allowed to move site items within the site tree
-			 *
-			 * The "locale-site-move" MCP tool can only be executed by users who are
-			 * members of at least one of the configured groups.
-			 *
-			 * @param array List of user group names
-			 * @since 2026.10
-			 * @see admin/mcp/resource/locale/site/get
-			 * @see admin/mcp/resource/locale/site/save
-			 * @see admin/mcp/resource/locale/site/delete
-			 * @see admin/mcp/resource/locale/site/insert
-			 * @see admin/mcp/tools
-			 */
-			'move' => $super,
 		],
 	],
 	'media' => [

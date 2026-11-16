@@ -50,6 +50,66 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSiteSearchAdmin() : void
+	{
+		$this->setSiteUser( 'unittest' );
+
+		$items = ( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Search( $this->context ) )->execute( [] )['items'];
+		$codes = array_column( $items, 'code' );
+		sort( $codes );
+
+		$this->assertEquals( ['unittest', 'unittest-child'], $codes );
+	}
+
+
+	public function testSiteSearchNoUserSite() : void
+	{
+		$this->setAccess( ['admin'] );
+		$this->context->setUser( \Aimeos\MShop::create( $this->context, 'customer' )->create( ['customer.siteid' => ''] ) );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 403 );
+
+		( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Search( $this->context ) )->execute( [] );
+	}
+
+
+	public function testSiteFindOtherSite() : void
+	{
+		$this->setSiteUser( 'unittest' );
+
+		// reported like missing sites so the codes don't reveal which sites exist
+		$this->expectException( \Aimeos\MShop\Exception::class );
+		$this->expectExceptionCode( 404 );
+
+		( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Find( $this->context ) )->execute( ['code' => 'default'] );
+	}
+
+
+	public function testSitePathAdmin() : void
+	{
+		$this->setSiteUser( 'unittest-child' );
+		$id = \Aimeos\MShop::create( $this->context, 'locale/site' )->find( 'unittest-child' )->getId();
+
+		// the parent site is outside the site tree of the user
+		$items = ( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Path( $this->context ) )->execute( ['id' => $id] )['items'];
+
+		$this->assertEquals( ['unittest-child'], array_values( array_column( $items, 'code' ) ) );
+	}
+
+
+	public function testSiteSearchTreeAdmin() : void
+	{
+		$this->setSiteUser( 'unittest-child' );
+
+		// the parent site is outside the site tree of the user
+		$filter = ['==' => ['locale.site.code' => 'unittest-child']];
+		$items = ( new \Aimeos\Admin\Mcp\Tool\Locale\Site\SearchTree( $this->context ) )->execute( ['filter' => $filter] );
+
+		$this->assertEquals( ['unittest-child'], array_values( array_column( $items['items'], 'code' ) ) );
+	}
+
+
 	public function testFindAndSearchProduct() : void
 	{
 		$found = ( new Find( $this->context ) )->execute( ['code' => 'CNC', 'include' => ['stock']] );
@@ -1256,6 +1316,15 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 		// the order plugins would check the products, e.g. their stock levels
 		return $manager->create()->off()->addProduct( $product )->addService( $service, 'payment' );
+	}
+
+
+	private function setSiteUser( string $code ) : void
+	{
+		$siteid = \Aimeos\MShop::create( $this->context, 'locale/site' )->find( $code )->getSiteId();
+
+		$this->setAccess( ['admin'] );
+		$this->context->setUser( \Aimeos\MShop::create( $this->context, 'customer' )->create( ['customer.siteid' => $siteid] ) );
 	}
 
 

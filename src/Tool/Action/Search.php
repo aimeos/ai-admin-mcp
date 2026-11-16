@@ -42,7 +42,7 @@ abstract class Search extends Base
 		}
 
 		$total = 0;
-		$items = $this->filterItems( $manager->search( $filter, (array) ( $arguments['include'] ?? [] ), $total ) );
+		$items = $manager->search( $filter, (array) ( $arguments['include'] ?? [] ), $total );
 		$result = [];
 
 		foreach( $items as $item ) {

@@ -12,7 +12,7 @@ class CatalogTest extends \PHPUnit\Framework\TestCase
 	{
 		$classes = Tools::classes();
 
-		$this->assertCount( 116, $classes );
+		$this->assertCount( 115, $classes );
 		$this->assertCount( count( $classes ), array_unique( $classes ) );
 
 		foreach( $classes as $class ) {
@@ -50,13 +50,14 @@ class CatalogTest extends \PHPUnit\Framework\TestCase
 	{
 		$tools = Tools::create( \TestHelper::context() );
 
-		$this->assertCount( 116, $tools );
+		$this->assertCount( 115, $tools );
 		$this->assertArrayHasKey( 'product-search', $tools );
 		$this->assertArrayHasKey( 'catalog-tree', $tools );
 		$this->assertArrayHasKey( 'coupon-code-save', $tools );
 		$this->assertArrayHasKey( 'locale-language-search', $tools );
 		$this->assertArrayHasKey( 'locale-currency-save', $tools );
-		$this->assertArrayHasKey( 'locale-site-move', $tools );
+		$this->assertArrayHasKey( 'catalog-move', $tools );
+		$this->assertArrayNotHasKey( 'locale-site-move', $tools );
 		$this->assertArrayNotHasKey( 'product-type-search', $tools );
 
 		foreach( $tools as $name => $tool )
