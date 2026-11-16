@@ -1,6 +1,7 @@
 <?php
 namespace Aimeos\Admin\Mcp\Tool\Review;
 
+use Aimeos\Admin\Mcp\Exception;
 use Aimeos\Prisma\Schema\Schema;
 
 
@@ -27,6 +28,14 @@ final class Save extends \Aimeos\Admin\Mcp\Tool\Action\Save
 		$fields = $this->fields();
 		$arguments['items'] = array_map( fn( $entry ) => array_intersect_key( (array) $entry, $fields ), (array) $arguments['items'] );
 
+		// empty IDs would skip the existence check of the generic save and create new reviews
+		foreach( $arguments['items'] as $entry )
+		{
+			if( empty( $entry['id'] ) ) {
+				throw new Exception( 'Reviews can only be updated, an ID is required', 400 );
+			}
+		}
+
 		return parent::run( $arguments );
 	}
 
@@ -41,7 +50,7 @@ final class Save extends \Aimeos\Admin\Mcp\Tool\Action\Save
 	private function fields() : array
 	{
 		return [
-			'id' => Schema::string()->required()->description( 'Unique review ID' ),
+			'id' => Schema::string()->min( 1 )->required()->description( 'Unique review ID' ),
 			'name' => Schema::string()->description( 'Displayed name of the reviewer' ),
 			'response' => Schema::string()->description( 'Response of the shop to the review' ),
 			'status' => Schema::integer()->description( 'Review status: 1 = enabled, 0 = disabled, -1 = in review, -2 = archived' ),
