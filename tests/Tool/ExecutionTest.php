@@ -12,6 +12,7 @@ use Aimeos\Admin\Mcp\Tool\Product\Delete;
 use Aimeos\Admin\Mcp\Tool\Product\Find;
 use Aimeos\Admin\Mcp\Tool\Product\Save;
 use Aimeos\Admin\Mcp\Tool\Product\Search;
+use Aimeos\Admin\Mcp\Tool\Review\Save as ReviewSave;
 
 
 class ExecutionTest extends \PHPUnit\Framework\TestCase
@@ -778,6 +779,69 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSaveReviewEditable() : void
+	{
+		$this->withReview( function( \Aimeos\MShop\Review\Item\Iface $review, \Aimeos\MShop\Common\Manager\Iface $manager ) {
+			$status = $review->getStatus() ? 0 : 1;
+
+			$this->setAccess( ['editor'] );
+			( new ReviewSave( $this->context ) )->execute( ['items' => [[
+				'id' => $review->getId(), 'name' => 'test name', 'response' => 'test response', 'status' => $status
+			]]] );
+
+			$item = $manager->get( (string) $review->getId() );
+
+			$this->assertSame( 'test name', $item->getName() );
+			$this->assertSame( 'test response', $item->getResponse() );
+			$this->assertSame( $status, $item->getStatus() );
+		} );
+	}
+
+
+	public function testSaveReviewReadonlyIgnored() : void
+	{
+		$this->withReview( function( \Aimeos\MShop\Review\Item\Iface $review, \Aimeos\MShop\Common\Manager\Iface $manager ) {
+			// without schema validation in execute()
+			$run = new \ReflectionMethod( ReviewSave::class, 'run' );
+			$run->invoke( new ReviewSave( $this->context ), ['items' => [[
+				'id' => $review->getId(), 'customerid' => '-1', 'orderproductid' => '-1', 'rating' => 0, 'name' => 'test name'
+			]]] );
+
+			$item = $manager->get( (string) $review->getId() );
+
+			$this->assertSame( 'test name', $item->getName() );
+			$this->assertSame( $review->getCustomerId(), $item->getCustomerId() );
+			$this->assertSame( $review->getOrderProductId(), $item->getOrderProductId() );
+			$this->assertSame( $review->getRating(), $item->getRating() );
+		} );
+	}
+
+
+	public function testSaveReviewReadonlyForbidden() : void
+	{
+		$schema = ( new ReviewSave( $this->context ) )->schema();
+
+		foreach( ['customerid' => '2', 'orderproductid' => '1', 'refid' => '27', 'domain' => 'product', 'rating' => 5, 'comment' => 'test'] as $key => $value ) {
+			$this->assertNotEmpty( $schema->validate( ['items' => [['id' => '1', $key => $value]]] ), $key );
+		}
+
+		// reviews can't be created
+		$this->assertNotEmpty( $schema->validate( ['items' => [['name' => 'Forged review', 'status' => 1]]] ) );
+	}
+
+
+	public function testSaveReviewUnknownId() : void
+	{
+		$this->setAccess( ['editor'] );
+
+		$this->expectException( Exception::class );
+		$this->expectExceptionCode( 400 );
+		$this->expectExceptionMessage( 'Review with ID "-1" not found' );
+
+		( new ReviewSave( $this->context ) )->execute( ['items' => [['id' => '-1', 'name' => 'Forged review', 'status' => 1]]] );
+	}
+
+
 	public function testSaveMediaOfRestrictedDomainForbidden() : void
 	{
 		$this->assertMediaDenied( 'service', Exception::class, 403, self::MEDIA_SAVE_DENIED,
@@ -1108,6 +1172,28 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		{
 			$this->setAccess( ['admin'] );
 			$manager->delete( $ids );
+		}
+	}
+
+
+	/**
+	 * Executes the function with a review item which is restored afterwards
+	 *
+	 * @param \Closure $call Function receiving the review item and the review manager
+	 */
+	private function withReview( \Closure $call ) : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'review' );
+		$filter = $manager->filter()->order( 'review.id' )->slice( 0, 1 );
+		$review = $manager->search( $filter )->first( new \Exception( 'No review found' ) );
+
+		try
+		{
+			$call( $review, $manager );
+		}
+		finally
+		{
+			$manager->save( $review->setModified() );
 		}
 	}
 
