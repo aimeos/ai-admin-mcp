@@ -2,6 +2,7 @@
 
 namespace Aimeos\Admin\Mcp\Tool\Action;
 
+use Aimeos\Admin\Mcp\Exception;
 use Aimeos\Prisma\Schema\Schema;
 
 
@@ -36,6 +37,12 @@ abstract class Save extends Base
 		{
 			$filter = $manager->filter()->add( $prefix . '.id', '==', $ids )->slice( 0, count( $ids ) );
 			$existing = $manager->search( $filter, $this->references( $entries ) );
+
+			// unknown IDs would only update nothing, checked first because uploads are stored immediately
+			if( $missing = array_diff( $ids, $existing->keys()->all() ) ) {
+				$label = ucfirst( str_replace( '/', ' ', $this->domain() ) );
+				throw new Exception( sprintf( '%1$s with ID "%2$s" not found', $label, current( $missing ) ), 400 );
+			}
 		}
 
 		$items = [];
@@ -43,8 +50,8 @@ abstract class Save extends Base
 		foreach( $entries as $entry )
 		{
 			$entry = (array) $entry;
-			$item = isset( $entry['id'] ) ? $existing->get( (string) $entry['id'] ) : null;
-			$items[] = $this->items()->update( $manager, $item ?: $manager->create(), $entry, $this->domain() );
+			$item = $existing->get( (string) ( $entry['id'] ?? '' ) ) ?: $manager->create();
+			$items[] = $this->items()->update( $manager, $item, $entry, $this->domain() );
 		}
 
 		$saved = $manager->save( map( $items ) );
