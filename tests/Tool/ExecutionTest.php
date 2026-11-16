@@ -54,8 +54,7 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	{
 		$this->setSiteUser( 'unittest' );
 
-		// the "default" site is outside the site tree of the user
-		$filter = ['==' => ['locale.site.code' => ['default', 'unittest']]];
+		$filter = ['==' => ['locale.site.code' => 'unittest']];
 		$items = ( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Search( $this->context ) )->execute( ['filter' => $filter] )['items'];
 		$codes = array_values( array_column( $items, 'code' ) );
 
@@ -77,13 +76,14 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 	public function testSiteFindOtherSite() : void
 	{
-		$this->setSiteUser( 'unittest' );
+		// the parent site of the user's site is outside the site tree of the user
+		$this->setSiteUser( 'unittest', '99.' );
 
 		// reported like missing sites so the codes don't reveal which sites exist
 		$this->expectException( \Aimeos\MShop\Exception::class );
 		$this->expectExceptionCode( 404 );
 
-		( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Find( $this->context ) )->execute( ['code' => 'default'] );
+		( new \Aimeos\Admin\Mcp\Tool\Locale\Site\Find( $this->context ) )->execute( ['code' => 'unittest'] );
 	}
 
 
@@ -93,24 +93,28 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 		$manager = \Aimeos\MShop::create( $this->context, 'locale/site' );
 		$tool = new \Aimeos\Admin\Mcp\Tool\Locale\Site\Path( $this->context );
 
-		$items = $tool->execute( ['id' => $manager->find( 'unittest' )->getId()] )['items'];
+		$id = $manager->find( 'unittest' )->getId();
+
+		$items = $tool->execute( ['id' => $id] )['items'];
 		$this->assertEquals( ['unittest'], array_values( array_column( $items, 'code' ) ) );
 
-		// the "default" site is outside the site tree of the user
-		$items = $tool->execute( ['id' => $manager->find( 'default' )->getId()] )['items'];
+		// the parent site of the user's site is outside the site tree of the user
+		$this->setSiteUser( 'unittest', '99.' );
+
+		$items = $tool->execute( ['id' => $id] )['items'];
 		$this->assertEquals( [], $items );
 	}
 
 
 	public function testSiteSearchTreeAdmin() : void
 	{
-		$this->setSiteUser( 'unittest' );
+		// the parent site of the user's site is outside the site tree of the user
+		$this->setSiteUser( 'unittest', '99.' );
 
-		// the "default" site is outside the site tree of the user
-		$filter = ['==' => ['locale.site.code' => ['default', 'unittest']]];
+		$filter = ['==' => ['locale.site.code' => 'unittest']];
 		$items = ( new \Aimeos\Admin\Mcp\Tool\Locale\Site\SearchTree( $this->context ) )->execute( ['filter' => $filter] );
 
-		$this->assertEquals( ['unittest'], array_values( array_column( $items['items'], 'code' ) ) );
+		$this->assertEquals( [], array_values( array_column( $items['items'], 'code' ) ) );
 	}
 
 
@@ -1323,9 +1327,13 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
-	private function setSiteUser( string $code ) : void
+	/**
+	 * @param string $code Site code of the user
+	 * @param string $child Site ID part of a child site the user belongs to instead, e.g. "99."
+	 */
+	private function setSiteUser( string $code, string $child = '' ) : void
 	{
-		$siteid = \Aimeos\MShop::create( $this->context, 'locale/site' )->find( $code )->getSiteId();
+		$siteid = \Aimeos\MShop::create( $this->context, 'locale/site' )->find( $code )->getSiteId() . $child;
 
 		$this->setAccess( ['admin'] );
 		$this->context->setUser( \Aimeos\MShop::create( $this->context, 'customer' )->create( ['customer.siteid' => $siteid] ) );
