@@ -822,6 +822,26 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 
 		// reviews can't be created
 		$this->assertNotEmpty( $schema->validate( ['items' => [['name' => 'Forged review', 'status' => 1]]] ) );
+		$this->assertNotEmpty( $schema->validate( ['items' => [['id' => '', 'name' => 'Forged review', 'status' => 1]]] ) );
+	}
+
+
+	public function testSaveReviewEmptyId() : void
+	{
+		$this->setAccess( ['editor'] );
+
+		foreach( ['', '0'] as $id )
+		{
+			try
+			{
+				( new ReviewSave( $this->context ) )->execute( ['items' => [['id' => $id, 'name' => 'Forged review', 'status' => 1]]] );
+				$this->fail( sprintf( 'Review with ID "%s" was saved', $id ) );
+			}
+			catch( Exception $e )
+			{
+				$this->assertEquals( 400, $e->getCode() );
+			}
+		}
 	}
 
 
