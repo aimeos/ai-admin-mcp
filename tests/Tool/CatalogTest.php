@@ -68,6 +68,9 @@ class CatalogTest extends \PHPUnit\Framework\TestCase
 			$this->assertNotEmpty( $tool->schema()->toArray(), $name );
 			$this->assertSame( ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'],
 				array_keys( $tool->annotations() ), $name );
+
+			$hints = $tool->annotations();
+			$this->assertSame( !$hints['readOnlyHint'], $hints['destructiveHint'], $name );
 		}
 	}
 }

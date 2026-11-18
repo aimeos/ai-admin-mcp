@@ -31,7 +31,8 @@ abstract class Tool
 
 		return [
 			'readOnlyHint' => $readonly,
-			'destructiveHint' => $this->action() === 'delete',
+			// saving overwrites existing items, e.g. customer groups or site config, so clients should confirm all writes
+			'destructiveHint' => !$readonly,
 			'idempotentHint' => $readonly || $this->action() === 'delete',
 			'openWorldHint' => false,
 		];
