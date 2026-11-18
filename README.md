@@ -33,3 +33,12 @@ provider configuration and tree operations.
 Set `admin/mcp/tools` to a list of tool class names to replace the built-in catalog.
 Permissions are configured below `admin/mcp/resource`; rejected arguments and
 authorization failures are reported as `Aimeos\Admin\Mcp\Exception` instances.
+
+## Security
+
+Tools return the stored content like product texts unchanged and the content can be
+written by other users, e.g. editors. Language models can follow instructions contained
+in that content and use the write tools with the permissions of the current user. All
+tools that change data are marked as destructive (`readOnlyHint: false`,
+`destructiveHint: true`), so MCP clients should require a confirmation before executing
+them, especially for administrators and super users.
