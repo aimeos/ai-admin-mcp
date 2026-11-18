@@ -3,3 +3,4 @@
 /tests/*.log
 /tests/tmp/
 /tests/confdoc.ser
+/tests/.phpunit.cache/
