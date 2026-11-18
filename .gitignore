@@ -2,3 +2,4 @@
 /.phpunit.cache/
 /tests/*.log
 /tests/tmp/
+/tests/.phpunit.cache/
