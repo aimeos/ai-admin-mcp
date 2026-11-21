@@ -163,7 +163,7 @@ class Schemas
 		$fields = $this->fields( \Aimeos\MShop::create( $this->context, 'order/service' )->getSearchAttributes( false ) );
 		$fields['id'] = Schema::string()->required()->description( 'ID of the existing order service' );
 		$fields['attribute'] = Schema::array()->items( $this->item( 'order/service/attribute' ) )
-			->description( 'Updates or adds attributes of the order service, existing attributes are referenced by ID or by type and code, type and code of existing attributes can not be changed, attributes are never removed' );
+			->description( 'Updates or adds attributes of the order service, existing attributes are referenced by ID or by type and code, type and code of existing attributes can not be changed, new attributes get the type of the order service, attributes are never removed' );
 		$fields['transaction'] = Schema::array()->items( $this->item( 'order/service/transaction' ) )->description( 'Read-only' );
 
 		return Schema::object( $fields )->withoutAdditionalProperties()
