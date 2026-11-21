@@ -712,6 +712,27 @@ class ExecutionTest extends \PHPUnit\Framework\TestCase
 	}
 
 
+	public function testSaveOrderServiceAttributeNewType() : void
+	{
+		$manager = \Aimeos\MShop::create( $this->context, 'order' );
+		$order = $this->order();
+		$service = $order->getService( 'payment', 0 );
+		$service->setAttributeItems( [$manager->createServiceAttribute()->setId( '9' )->setType( 'tx' )->setCode( 'note' )->setValue( 'x' )] );
+
+		$item = $this->items()->update( $manager, $order, [
+			'service' => [['id' => $service->getId(), 'attribute' => [
+				['type' => 'tx', 'code' => 'note', 'value' => 'y'], ['type' => 'tx', 'code' => 'TRANSACTIONID', 'value' => 'tx-2'],
+			]]],
+		], 'order' );
+
+		$service = $item->getService( 'payment', 0 );
+		$this->assertSame( 2, count( $service->getAttributeItems() ) );
+		$this->assertSame( 'y', $service->getAttribute( 'note', 'tx' ) );
+		$this->assertNull( $service->getAttribute( 'TRANSACTIONID', 'tx' ) );
+		$this->assertSame( 'tx-2', $service->getAttribute( 'TRANSACTIONID', 'payment' ) );
+	}
+
+
 	public function testSaveOrderNewServiceForbidden() : void
 	{
 		$this->expectException( Exception::class );

@@ -710,7 +710,8 @@ class Items
 				if( $found ) {
 					$found->fromArray( $data );
 				} else {
-					$service->setAttributeItem( $new ); // @phpstan-ignore method.notFound
+					// new attributes can't use types of the service providers, e.g. for transaction IDs
+					$service->setAttributeItem( $new->setType( $service->getType() ) ); // @phpstan-ignore method.notFound, method.notFound
 				}
 			}
 		}
